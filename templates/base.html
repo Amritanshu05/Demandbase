@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Relay — Share for a moment{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header">
+    <a class="brand" href="{{ url_for('dashboard') }}" aria-label="Relay home"><span class="brand-mark" aria-hidden="true">r</span>relay<span class="brand-dot">.</span></a>
+    <nav aria-label="Main navigation">
+      <a class="nav-link" href="{{ url_for('dashboard') }}">My resources</a>
+      <a class="button small" href="{{ url_for('new_share') }}"><span aria-hidden="true">＋</span> New share</a>
+    </nav>
+  </header>
+  <main id="main">
+    {% for message in get_flashed_messages() %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer><span>Made to be shared. Not stored forever.</span><span>Local workspace <span class="live-dot" aria-hidden="true"></span></span></footer>
+  <p class="toast" id="toast" role="status" hidden></p>
+</body>
+</html>
