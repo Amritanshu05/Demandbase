@@ -1,61 +1,27 @@
-# Relay — contributor and agent instructions
+# Campus Commons — agent and contributor guide
 
-## Product contract
+## Product
 
-Local digital-resource sharing MVP: text, code, PDF/TXT/MD/CSV documents, and HTTP/HTTPS links. Mandatory expiry, unlisted share URLs, browser-owned workspace, manual revocation. No payments, logistics, accounts, public feed, or collaboration without explicit scope approval.
+Build the physical-item borrowing MVP described in `Community_Resource_Sharing_MVP_v0.1.md`, with the agreed additions in `README.md`. Members list movable goods, request borrowing, approve/reject, and record returns. Approved borrowers see fictional owner contact details. Keep delivery local; no chat, payments, uploads, real authentication, or reservations.
 
-Read `docs/REQUIREMENTS.md`, `docs/DECISIONS.md`, and `docs/SECURITY.md` before changing behavior.
+## Implementation
 
-## Stack and commands
+- Python 3.9+, Flask, Jinja, standard-library SQLite; no frontend build.
+- `app.py` owns routes, validation, seed data, and transactions. Templates and static assets provide the UI.
+- `instance/` is generated runtime data. Never commit, overwrite, or delete a user's database or signing key.
+- Seed Amritanshu, Rahul, and Priya once. Demo identity selection is intentionally not secure authentication.
+- Enforce owner checks and valid state transitions in the backend. Never trust submitted owner/member fields.
+- Approval must recheck availability inside a write transaction, reject competing Pending requests, and preserve the unique Approved-per-item database index.
+- Keep SQL parameterized, templates escaped, and POST forms CSRF-protected.
+- Keep core forms usable without JavaScript and retain visible keyboard focus.
 
-- Python 3.11+, Flask, Jinja, standard-library SQLite/unittest.
-- Install: `python -m pip install --only-binary=:all: -r requirements.txt`
-- Start: `python app.py`
-- Tests: `python -m unittest discover -s tests -v`
-- Cleanup: `python -m flask --app app:create_app cleanup`
-- Advisory check: install development-only `pip-audit`, then `python -m pip_audit -r requirements.txt`.
-- Use `.venv/bin/python` on Linux/macOS if the environment is not activated.
+## Commands and completion
 
-## Files and conventions
-
-- `app.py`: app factory, validation, persistence, routes, CLI.
-- `templates/`: escaped Jinja views.
-- `static/`: dependency-free CSS/JS.
-- `tests/`: isolated, real SQLite/filesystem integration tests.
-- `instance/`: generated private data; never commit or expose.
-- `SETUP.md`: **startup/setup instructions only**. Architecture, tests, demos, and rationale belong elsewhere.
-- Keep docs consistent with actual behavior; explicitly distinguish roadmap from implementation.
-- Follow Conventional Commits when commits are requested. Do not post to GitHub without approval of exact text.
-
-## Invariants
-
-1. Both resource preview and download must enforce server-time expiry/revocation.
-2. Owner authorization and CSRF protection are mandatory for mutations.
-3. Share URLs are bearer capabilities. Do not put them in analytics, third-party requests, or public logs.
-4. Do not call unlisted links private, encrypted, or copy-proof.
-5. Never render submitted code/HTML/Markdown as trusted HTML or execute it.
-6. Never fetch submitted links on the server without a separate reviewed SSRF design.
-7. Uploads stay outside static root, under random server-selected keys.
-8. Validate on the server even when the browser validates.
-9. Use parameterized SQL and preserve Jinja autoescaping.
-10. Deny access before attempting payload deletion on revoke.
-11. Physical expired-data removal is separate from access denial; do not claim scheduled cleanup exists.
-12. Do not weaken tests or add dependencies/services merely to get a check passing.
-
-## Change workflow
-
-- Write a failing regression test before behavioral changes.
-- Implement a thin slice; run the focused test, then the full suite.
-- For UI changes, verify in a browser at desktop/mobile sizes and check console errors.
-- Preserve core no-JS form flows and visible focus styles.
-- Runtime dependencies are pinned; resolve and audit changes deliberately. Install binary distributions; do not blanket-enable third-party build scripts.
-- Never overwrite/reset user work, delete data directories, or rotate the signing key without explicit approval.
-- No production deployment is implied by a request for a local feature.
-
-## Browser support
-
-Current evergreen Chromium, Firefox, and Safari are the intended targets, not an exhaustive tested support matrix. Use native controls and feature detection. Clipboard failure must leave a manual-copy path. Prefer reduced-motion-safe, progressively enhanced behavior.
-
-## Done means
-
-Tests pass; relevant runtime behavior is verified; no new security bypass; requirements/decision/security/demo docs reflect changes; `SETUP.md` remains instruction-only. Report any unverified environment or known limitation honestly.
+- Setup/run: follow `STARTUP.md`; start with `.venv/bin/python app.py`.
+- Windows PowerShell/Command Prompt: start with `.\.venv\Scripts\python.exe app.py`.
+- Focused verification: `.venv/bin/python -m unittest discover -s tests -v`.
+- Windows verification: `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+- Prioritize the working MVP over extensive test coverage. Add checks for material lifecycle/data-integrity changes, not cosmetic edits.
+- Update the README, design, tradeoffs, and demo guide when behavior changes. `STARTUP.md` contains run instructions only.
+- Preserve unrelated user changes. Do not restore the intentionally removed digital-sharing app.
+- Report actual checks and any verification limits. Do not publish, commit, or push unless requested.

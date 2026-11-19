@@ -1,83 +1,137 @@
-"""Relay: locally hosted, temporary digital resource sharing."""
+"""Campus Commons: a local, persistent physical-item borrowing demo."""
 
-import hashlib
-import io
 import os
 import secrets
 import sqlite3
-import time
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
-import click
 from flask import (
     Flask, abort, current_app, flash, g, redirect, render_template,
-    request, send_file, session, url_for,
+    request, session, url_for,
 )
-from werkzeug.utils import secure_filename
-from werkzeug.exceptions import SecurityError
 
 
-EXPIRIES = {"60": "1 minute · demo", "3600": "1 hour", "86400": "1 day",
-            "604800": "7 days", "2592000": "30 days"}
-LANGUAGES = {"plain": "Plain text", "python": "Python", "javascript": "JavaScript",
-             "typescript": "TypeScript", "json": "JSON", "html": "HTML",
-             "css": "CSS", "sql": "SQL", "shell": "Shell"}
-KINDS = {"text": "Text", "code": "Code", "document": "Document", "link": "Link"}
-MAX_FILE = 5 * 1024 * 1024
+CATEGORIES = {
+    "Sports": "sports", "Electronics": "electronics", "Books": "books",
+    "Tools": "tools", "Outdoors": "outdoors", "Other": "other",
+}
+CONDITIONS = ("Like new", "Good", "Fair")
+COMMUNITY_TZ = ZoneInfo("Asia/Kolkata")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS members (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL REFERENCES members(id),
+    name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
+    category TEXT NOT NULL CHECK(category IN ('Sports','Electronics','Books','Tools','Outdoors','Other')),
+    description TEXT NOT NULL CHECK(length(trim(description)) BETWEEN 1 AND 600),
+    condition TEXT NOT NULL CHECK(condition IN ('Like new','Good','Fair')),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS borrow_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES items(id),
+    borrower_id INTEGER NOT NULL REFERENCES members(id),
+    expected_return TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Pending'
+        CHECK(status IN ('Pending','Approved','Rejected','Returned')),
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_approved_per_item
+    ON borrow_requests(item_id) WHERE status = 'Approved';
+CREATE UNIQUE INDEX IF NOT EXISTS one_pending_per_borrower
+    ON borrow_requests(item_id, borrower_id) WHERE status = 'Pending';
+CREATE INDEX IF NOT EXISTS requests_borrower ON borrow_requests(borrower_id);
+"""
+
+ITEM_QUERY = """
+SELECT i.*, m.name AS owner_name,
+       EXISTS(SELECT 1 FROM borrow_requests r
+              WHERE r.item_id=i.id AND r.status='Approved') AS borrowed
+FROM items i JOIN members m ON m.id=i.owner_id
+"""
+ACTIVITY_QUERY = """
+SELECT r.*, i.name AS item_name, i.owner_id, i.category,
+       o.name AS owner_name, o.email AS owner_email, b.name AS borrower_name
+FROM borrow_requests r JOIN items i ON i.id=r.item_id
+JOIN members o ON o.id=i.owner_id JOIN members b ON b.id=r.borrower_id
+"""
+
+
+def timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def today():
+    return current_app.config.get("TODAY") or datetime.now(COMMUNITY_TZ).date()
 
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(current_app.config["DATA_DIR"] / "relay.sqlite3", timeout=10)
+        g.db = sqlite3.connect(current_app.config["DATABASE"], timeout=5)
         g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 
-def now():
-    return int(current_app.config["CLOCK"]())
+@contextmanager
+def write_transaction():
+    db = get_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
-def owner_hash():
-    return hashlib.sha256(session["owner"].encode()).hexdigest()
-
-
-def share_status(share):
-    if share["revoked"]:
-        return "revoked"
-    return "expired" if share["expires_at"] <= now() else "active"
-
-
-def remove_payload(share):
-    """Only remove the server-named file referenced by an existing database row."""
-    if share["storage_key"]:
-        root = current_app.config["DATA_DIR"] / "uploads"
-        path = (root / share["storage_key"]).resolve()
-        if path.parent != root.resolve():
-            raise RuntimeError("Refusing unsafe stored path")
-        path.unlink(missing_ok=True)
+def seed_database():
+    db = get_db()
+    db.executescript(SCHEMA)
+    with write_transaction():
+        if db.execute("SELECT 1 FROM metadata WHERE key='seed_version'").fetchone():
+            return
+        db.executemany("INSERT INTO members(id,name,email) VALUES(?,?,?)", [
+            (1, "Amritanshu", "amritanshu@example.com"),
+            (2, "Rahul", "rahul@example.com"),
+            (3, "Priya", "priya@example.com"),
+        ])
+        seeds = [
+            (2, "Cricket Bat", "Sports", "A trusty willow bat for a friendly match. Best with a tennis ball.", "Good"),
+            (3, "Mini Projector", "Electronics", "Make movie night a little bigger. HDMI cable and remote included.", "Like new"),
+            (1, "Cordless Drill", "Tools", "For that small DIY project. Includes a charged battery and a basic bit set.", "Good"),
+            (3, "The Design of Everyday Things", "Books", "A well-loved copy for curious minds. Please keep the bookmarks inside.", "Fair"),
+            (2, "Camping Tent", "Outdoors", "A two-person tent for a weekend under the stars. Pegs and carry bag included.", "Good"),
+            (1, "Badminton Set", "Sports", "Two rackets and a few shuttlecocks. All you need is a court and a friend.", "Good"),
+        ]
+        db.executemany(
+            "INSERT INTO items(owner_id,name,category,description,condition,created_at) VALUES(?,?,?,?,?,?)",
+            [(*item, timestamp()) for item in seeds],
+        )
+        db.execute("INSERT INTO metadata VALUES('seed_version','1')")
 
 
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
-        DATA_DIR=Path(os.environ.get("RELAY_DATA_DIR", "instance")).resolve(),
-        MAX_CONTENT_LENGTH=MAX_FILE + 256 * 1024,
-        MAX_FORM_MEMORY_SIZE=200_000,
+        DATA_DIR=Path(os.environ.get("COMMONS_DATA_DIR", Path(__file__).parent / "instance")),
+        MAX_CONTENT_LENGTH=32 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.environ.get("RELAY_SECURE_COOKIE") == "1",
-        PERMANENT_SESSION_LIFETIME=30 * 86400,
-        CLOCK=time.time,
-        TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
     )
     if config:
         app.config.update(config)
-    app.config["DATA_DIR"] = Path(app.config["DATA_DIR"]).resolve()
-    data_dir = app.config["DATA_DIR"]
-    data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (data_dir / "uploads").mkdir(exist_ok=True, mode=0o700)
+    data_dir = Path(app.config["DATA_DIR"]).resolve()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    app.config.setdefault("DATABASE", str(data_dir / "commons.sqlite3"))
     if not app.config.get("SECRET_KEY"):
         key_path = data_dir / "secret.key"
         try:
@@ -87,272 +141,187 @@ def create_app(config=None):
             pass
         app.config["SECRET_KEY"] = key_path.read_text().strip()
 
-    with app.app_context():
-        db = get_db()
-        db.executescript("""
-            PRAGMA journal_mode=WAL;
-            CREATE TABLE IF NOT EXISTS shares (
-                id TEXT PRIMARY KEY,
-                owner_hash TEXT NOT NULL,
-                title TEXT NOT NULL,
-                kind TEXT NOT NULL CHECK(kind IN ('text','code','document','link')),
-                content TEXT NOT NULL DEFAULT '',
-                language TEXT NOT NULL DEFAULT 'plain',
-                filename TEXT,
-                storage_key TEXT,
-                size INTEGER NOT NULL,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL,
-                revoked INTEGER NOT NULL DEFAULT 0,
-                views INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS shares_owner_created ON shares(owner_hash, created_at DESC);
-            CREATE INDEX IF NOT EXISTS shares_expiry ON shares(expires_at);
-        """)
-        db.commit()
-        db.close()
-        g.pop("db")
-
     @app.teardown_appcontext
     def close_db(_error):
         db = g.pop("db", None)
         if db is not None:
             db.close()
 
+    with app.app_context():
+        seed_database()
+
     @app.before_request
-    def protect_request():
-        if "owner" not in session:
-            session["owner"] = secrets.token_urlsafe(32)
-            session["csrf"] = secrets.token_urlsafe(32)
-            session.permanent = True
+    def load_member():
+        if request.endpoint == "static":
+            return
+        g.members = get_db().execute("SELECT * FROM members ORDER BY id").fetchall()
+        member_id = session.get("member_id", 1)
+        g.member = next((m for m in g.members if m["id"] == member_id), g.members[0])
+        session["member_id"] = g.member["id"]
+        if "csrf" not in session:
+            session["csrf"] = secrets.token_hex(32)
         if request.method == "POST":
-            supplied = request.form.get("csrf", "")
-            if not secrets.compare_digest(supplied, session["csrf"]):
+            token = request.form.get("csrf", "")
+            if not secrets.compare_digest(token.encode(), session["csrf"].encode()):
                 abort(403, description="This form has expired. Reload the page and try again.")
 
     @app.after_request
-    def headers(response):
+    def response_headers(response):
         response.headers.update({
-            "Cache-Control": "no-store, private",
-            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
-            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "same-origin",
             "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
-                                     "img-src 'self'; object-src 'none'; base-uri 'none'; "
-                                     "frame-ancestors 'none'; form-action 'self'",
-            "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+                                       "img-src 'self' data:; object-src 'none'; base-uri 'self'; "
+                                       "frame-ancestors 'none'; form-action 'self'",
         })
         return response
 
     @app.context_processor
-    def template_helpers():
-        return dict(kinds=KINDS, languages=LANGUAGES, expiries=EXPIRIES, status=share_status)
+    def shared_context():
+        return dict(categories=CATEGORIES, conditions=CONDITIONS, today=today())
 
-    @app.template_filter("date")
-    def format_date(value):
-        return datetime.fromtimestamp(value, timezone.utc).strftime("%d %b %Y, %H:%M UTC")
-
-    @app.template_filter("filesize")
-    def file_size(value):
-        return f"{value / 1024:.1f} KB" if value >= 1024 else f"{value} B"
+    @app.template_filter("return_date")
+    def return_date(value):
+        parsed = date.fromisoformat(value)
+        label = f"{parsed.day} {parsed.strftime('%B')}"
+        return label if parsed.year == today().year else f"{label} {parsed.year}"
 
     @app.get("/")
-    def dashboard():
-        query = request.args.get("q", "").strip()[:120]
-        kind = request.args.get("kind", "")
-        state = request.args.get("state", "")
-        # Filtering is bounded to the owner's latest 200 records in this local MVP.
-        rows = get_db().execute(
-            "SELECT * FROM shares WHERE owner_hash=? ORDER BY created_at DESC, rowid DESC LIMIT 200",
-            (owner_hash(),),
-        ).fetchall()
-        counts = {s: sum(share_status(row) == s for row in rows)
-                  for s in ("active", "expired", "revoked")}
-        filtered = [row for row in rows if
-                    (not query or query.casefold() in row["title"].casefold()) and
-                    (not kind or row["kind"] == kind) and
-                    (not state or share_status(row) == state)]
-        return render_template("dashboard.html", shares=filtered, counts=counts,
-                               total=len(rows), query=query, kind=kind, state=state)
-
-    @app.get("/new")
-    def new_share():
-        return render_template("new.html", values={}, error=None)
-
-    @app.post("/shares")
-    def create_share():
-        form = request.form
-        title = form.get("title", "").strip()
-        kind = form.get("kind", "")
-        content = form.get("content", "").strip() if kind == "link" else form.get("content", "")
-        expiry = form.get("expiry", "")
-        language = form.get("language", "plain")
-        filename = storage_key = None
-        payload = b""
-
-        def invalid(message):
-            return render_template("new.html", values=form, error=message), 422
-
-        if not title or len(title) > 120:
-            return invalid("Enter a title between 1 and 120 characters.")
-        if kind not in KINDS or expiry not in EXPIRIES or language not in LANGUAGES:
-            return invalid("Choose a supported resource type, language, and expiry.")
-        if kind != "document" and (not content.strip() or len(content) > 100_000):
-            return invalid("Enter content between 1 and 100,000 characters.")
-        if kind == "link":
-            try:
-                parsed = urlsplit(content)
-                valid = (parsed.scheme in ("https", "http") and parsed.hostname
-                         and not parsed.username and not parsed.password and parsed.port != 0
-                         and not any(c.isspace() or ord(c) < 32 for c in content)
-                         and len(content) <= 2048 and "\\" not in content)
-            except ValueError:
-                valid = False
-            if not valid:
-                return invalid("Enter a full http:// or https:// URL without embedded credentials (max 2,048 characters).")
-        if kind == "document":
-            upload = request.files.get("file")
-            if not upload or not upload.filename:
-                return invalid("Choose a PDF, TXT, MD, or CSV document (maximum 5 MB).")
-            filename = secure_filename(upload.filename)[:180]
-            suffix = Path(filename).suffix.lower()
-            if suffix not in (".pdf", ".txt", ".md", ".csv"):
-                return invalid("Supported documents: PDF, TXT, MD, and CSV.")
-            payload = upload.read(MAX_FILE + 1)
-            if not payload or len(payload) > MAX_FILE:
-                return invalid("The document must be non-empty and no larger than 5 MB.")
-            if suffix == ".pdf":
-                if not payload.startswith(b"%PDF-"):
-                    return invalid("The selected file does not have a valid PDF header.")
-            else:
-                try:
-                    payload.decode("utf-8")
-                except UnicodeDecodeError:
-                    return invalid("Text documents must use UTF-8 encoding.")
-                if b"\x00" in payload:
-                    return invalid("Text documents cannot contain binary data.")
-            content = ""
-            storage_key = secrets.token_hex(24)
-
+    def explore():
         db = get_db()
-        # Local abuse guard: bounded active resources and a persistent creation quota.
-        recent = db.execute("SELECT count(*) FROM shares WHERE owner_hash=? AND created_at>?",
-                            (owner_hash(), now() - 3600)).fetchone()[0]
-        active = db.execute("SELECT count(*) FROM shares WHERE owner_hash=? AND revoked=0 AND expires_at>?",
-                            (owner_hash(), now())).fetchone()[0]
-        if recent >= 60 or active >= 100:
-            abort(429, description="This browser has reached the local sharing limit. Try again later or revoke active shares.")
-        token = secrets.token_urlsafe(24)
-        path = data_dir / "uploads" / storage_key if storage_key else None
-        try:
-            if path:
-                path.write_bytes(payload)
+        items = db.execute(ITEM_QUERY + " WHERE NOT EXISTS (SELECT 1 FROM borrow_requests r WHERE r.item_id=i.id AND r.status='Approved') ORDER BY i.id DESC").fetchall()
+        pending = {r["item_id"] for r in db.execute(
+            "SELECT item_id FROM borrow_requests WHERE borrower_id=? AND status='Pending'", (g.member["id"],)
+        )}
+        own_count = db.execute("SELECT count(*) FROM items WHERE owner_id=?", (g.member["id"],)).fetchone()[0]
+        return render_template("explore.html", items=items, pending=pending, own_count=own_count)
+
+    @app.post("/demo-member")
+    def switch_member():
+        selected = request.form.get("member_id", type=int)
+        if selected not in {m["id"] for m in g.members}:
+            abort(400, description="Choose one of the demo members.")
+        session["member_id"] = selected
+        # Preserve only known destinations; never redirect to an arbitrary submitted URL.
+        destination = "activity" if request.form.get("next") == "activity" else "explore"
+        return redirect(url_for(destination), code=303)
+
+    @app.get("/items/new")
+    def new_item():
+        return render_template("new_item.html", values={}, error=None)
+
+    @app.post("/items")
+    def create_item():
+        values = {key: request.form.get(key, "").strip() for key in ("name", "description", "category", "condition")}
+        error = None
+        if not 1 <= len(values["name"]) <= 100:
+            error = "Enter an item name between 1 and 100 characters."
+        elif not 1 <= len(values["description"]) <= 600:
+            error = "Enter a description between 1 and 600 characters."
+        elif values["category"] not in CATEGORIES or values["condition"] not in CONDITIONS:
+            error = "Choose a category and condition from the available options."
+        if error:
+            return render_template("new_item.html", values=values, error=error), 422
+        with write_transaction() as db:
             db.execute(
-                """INSERT INTO shares
-                (id,owner_hash,title,kind,content,language,filename,storage_key,size,created_at,expires_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (token, owner_hash(), title, kind, content, language, filename, storage_key,
-                 len(payload) if path else len(content.encode("utf-8")), now(), now() + int(expiry)),
+                "INSERT INTO items(owner_id,name,description,category,condition,created_at) VALUES(?,?,?,?,?,?)",
+                (g.member["id"], values["name"], values["description"], values["category"], values["condition"], timestamp()),
             )
-            db.commit()
-        except Exception:
-            db.rollback()
-            if path:
-                path.unlink(missing_ok=True)
-            raise
-        flash("Share created. Copy the link below to pass it on.")
-        return redirect(url_for("view_share", token=token), code=303)
+        flash("Your item is listed. Someone's next great borrow starts here.", "success")
+        return redirect(url_for("explore"), code=303)
 
-    def find_share(token, owner_only=False):
-        share = get_db().execute("SELECT * FROM shares WHERE id=?", (token,)).fetchone()
-        if share is None or (owner_only and share["owner_hash"] != owner_hash()):
+    @app.route("/items/<int:item_id>/request", methods=["GET", "POST"])
+    def request_item(item_id):
+        item = get_db().execute(ITEM_QUERY + " WHERE i.id=?", (item_id,)).fetchone()
+        if item is None:
             abort(404)
-        return share
+        if item["owner_id"] == g.member["id"]:
+            abort(403, description="This is your item. Switch to another demo member to borrow it.")
+        if item["borrowed"]:
+            abort(409, description="This item is already borrowed. It will be available when its owner records the return.")
+        value = request.form.get("expected_return", "")
+        error = None
+        if request.method == "POST":
+            try:
+                expected = date.fromisoformat(value)
+                if expected < today():
+                    raise ValueError
+            except ValueError:
+                error = "Choose an expected return date that is today or later."
+            if not error:
+                try:
+                    with write_transaction() as db:
+                        if db.execute("SELECT 1 FROM borrow_requests WHERE item_id=? AND status='Approved'", (item_id,)).fetchone():
+                            abort(409, description="This item was just borrowed. Please choose another item.")
+                        db.execute(
+                            "INSERT INTO borrow_requests(item_id,borrower_id,expected_return,created_at) VALUES(?,?,?,?)",
+                            (item_id, g.member["id"], expected.isoformat(), timestamp()),
+                        )
+                except sqlite3.IntegrityError:
+                    abort(409, description="You already have a pending request for this item. Check My Activity.")
+                flash(f"Request sent to {item['owner_name']}. You can follow it in My Activity.", "success")
+                return redirect(url_for("activity"), code=303)
+        return render_template("request_item.html", item=item, value=value, error=error), (422 if error else 200)
 
-    def require_active(share):
-        if share_status(share) != "active":
-            abort(410, description="This share has expired or been revoked. Ask the owner for a new link.")
+    @app.get("/activity")
+    def activity():
+        rows = get_db().execute(
+            ACTIVITY_QUERY + " WHERE i.owner_id=? OR r.borrower_id=? ORDER BY r.id DESC",
+            (g.member["id"], g.member["id"]),
+        ).fetchall()
+        incoming = [r for r in rows if r["owner_id"] == g.member["id"]]
+        outgoing = [r for r in rows if r["borrower_id"] == g.member["id"]]
+        return render_template("activity.html", incoming=incoming, outgoing=outgoing,
+                               pending_count=sum(r["status"] == "Pending" for r in incoming))
 
-    @app.get("/s/<token>")
-    def view_share(token):
-        share = find_share(token)
-        require_active(share)
-        is_owner = share["owner_hash"] == owner_hash()
-        if not is_owner and request.method != "HEAD":
-            db = get_db()
-            db.execute("UPDATE shares SET views=views+1 WHERE id=?", (token,))
-            db.commit()
-            share = find_share(token)
-        preview = None
-        if share["kind"] == "document" and Path(share["filename"]).suffix.lower() != ".pdf":
-            path = data_dir / "uploads" / share["storage_key"]
-            if not path.is_file():
-                abort(404, description="The document is no longer available.")
-            with path.open("rb") as source:
-                preview = source.read(20_000).decode("utf-8", errors="replace")
-        return render_template("share.html", share=share, is_owner=is_owner, preview=preview)
-
-    @app.get("/s/<token>/download")
-    def download_share(token):
-        share = find_share(token)
-        require_active(share)
-        if share["kind"] == "document":
-            source = data_dir / "uploads" / share["storage_key"]
-            if not source.is_file():
-                abort(404, description="The document is no longer available.")
-            filename = share["filename"]
-        else:
-            source = io.BytesIO(share["content"].encode("utf-8"))
-            filename = (secure_filename(share["title"]) or "resource") + ".txt"
-        return send_file(source, as_attachment=True, download_name=filename,
-                         mimetype="application/octet-stream", conditional=False, etag=False)
-
-    @app.post("/s/<token>/revoke")
-    def revoke_share(token):
-        share = find_share(token, owner_only=True)
-        db = get_db()
-        # Commit denial first: file cleanup failure must never leave a live share.
-        db.execute("UPDATE shares SET revoked=1,content='' WHERE id=?", (token,))
-        db.commit()
-        remove_payload(share)
-        flash("Share revoked. The link and downloads are now unavailable.")
-        return redirect(url_for("dashboard"), code=303)
-
-    @app.cli.command("cleanup")
-    def cleanup():
-        """Delete expired/revoked rows and their document payloads."""
-        db = get_db()
-        rows = db.execute("SELECT * FROM shares WHERE expires_at<=? OR revoked=1", (now(),)).fetchall()
-        for row in rows:
-            remove_payload(row)
-            db.execute("DELETE FROM shares WHERE id=?", (row["id"],))
-        db.commit()
-        click.echo(f"Removed {len(rows)} expired/revoked shares.")
+    @app.post("/requests/<int:request_id>/<action>")
+    def decide_request(request_id, action):
+        transitions = {"approve": ("Pending", "Approved"), "reject": ("Pending", "Rejected"), "return": ("Approved", "Returned")}
+        if action not in transitions:
+            abort(404)
+        required, target = transitions[action]
+        with write_transaction() as db:
+            row = db.execute(ACTIVITY_QUERY + " WHERE r.id=?", (request_id,)).fetchone()
+            if row is None:
+                abort(404)
+            if row["owner_id"] != g.member["id"]:
+                abort(403, description="Only the item owner can approve, reject, or record its return.")
+            if row["status"] != required:
+                abort(409, description="This request has already changed. Open My Activity to see its current status.")
+            if action == "approve":
+                if db.execute("SELECT 1 FROM borrow_requests WHERE item_id=? AND status='Approved'", (row["item_id"],)).fetchone():
+                    abort(409, description="This item already has an approved borrow.")
+            db.execute("UPDATE borrow_requests SET status=? WHERE id=?", (target, request_id))
+            if action == "approve":
+                db.execute("UPDATE borrow_requests SET status='Rejected' WHERE item_id=? AND id<>? AND status='Pending'", (row["item_id"], request_id))
+        messages = {
+            "approve": "Request approved. The borrower can now see your demo contact details. Other pending requests for this item were declined.",
+            "reject": "Request rejected. Your item is still available.",
+            "return": "Return recorded. Your item is available to borrow again.",
+        }
+        flash(messages[action], "success")
+        return redirect(url_for("activity"), code=303)
 
     @app.get("/health")
     def health():
         get_db().execute("SELECT 1").fetchone()
         return {"status": "ok"}
 
-    @app.errorhandler(400)
-    @app.errorhandler(403)
-    @app.errorhandler(404)
-    @app.errorhandler(410)
-    @app.errorhandler(413)
-    @app.errorhandler(429)
-    @app.errorhandler(500)
-    def error_page(error):
-        # An untrusted host fails before Flask creates its URL adapter.
-        # Rendering the normal layout would call url_for and mask the 400.
-        if isinstance(error, SecurityError):
-            return "Invalid request host.", 400, {"Content-Type": "text/plain; charset=utf-8"}
-        messages = {404: "We couldn't find that resource.", 413: "The upload is too large. Documents must be 5 MB or smaller.",
-                    500: "Something went wrong. Please try again."}
-        message = messages.get(error.code, error.description)
-        return render_template("error.html", code=error.code, message=message), error.code
+    @app.errorhandler(sqlite3.OperationalError)
+    def database_error(error):
+        if "locked" not in str(error).lower():
+            raise error
+        return render_template("error.html", code=503, message="The demo is saving another change. Please try again in a moment."), 503
 
+    def error_page(error):
+        defaults = {404: "We couldn't find that item or page.", 413: "That form is too large. Keep your listing short and try again.", 500: "Something went wrong. Please try again."}
+        return render_template("error.html", code=error.code, message=defaults.get(error.code, error.description)), error.code
+
+    for code in (400, 403, 404, 409, 413, 422, 500):
+        app.register_error_handler(code, error_page)
     return app
 
 
 if __name__ == "__main__":
-    create_app().run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False)
+    create_app().run(host="127.0.0.1", port=int(os.environ.get("PORT", "5001")), debug=False)

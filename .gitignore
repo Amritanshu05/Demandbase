@@ -7,3 +7,4 @@ __pycache__/
 !.env.example
 test-results/
 .playwright-mcp/
+.DS_Store

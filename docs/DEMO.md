@@ -1,88 +1,69 @@
-# Demo and judging walkthrough
+# Campus Commons — hackathon walkthrough
 
-## Before presenting
+Start the app using [STARTUP.md](../STARTUP.md). For a clean demo, follow the [database reset instructions](../README.md#reset-the-demo-database). All contacts are fictional. Identity selection is a deliberate demo shortcut, not authentication. If an item used below is already borrowed from a previous run, its owner can mark it returned in My Activity, or you can create a new listing.
 
-1. Follow [SETUP.md](../SETUP.md).
-2. Use `http://127.0.0.1:5000` consistently.
-3. Keep a normal window for the owner and an incognito window for the recipient.
-4. Prepare a small TXT/CSV/PDF document. No fake seed data is required.
-5. Run the automated suite using [TESTING.md](TESTING.md).
+## List and borrow an item
 
-## Suggested presentation
+1. Select **Amritanshu** in the header.
+2. Choose **List an item**. Create “Demo Tripod” with category Electronics, condition Good, and a short description.
+3. Confirm it appears in Explore with Amritanshu as owner and “Your item · available.”
+4. Switch to **Priya**. Find Demo Tripod and choose **Request to borrow**.
+5. Select today or a future expected return date and send the request. My Activity shows Pending.
+6. Switch to **Amritanshu** and open **My Activity**. Approve Priya's incoming request.
+7. Switch to **Priya**. My Activity shows **Request approved**, **Accepted**, Amritanshu's demo contact, and the saved return date. Explain that handover is arranged outside the app.
+8. Explore no longer shows Demo Tripod while the Approved borrow is active.
+9. Switch to **Amritanshu** and mark it returned. It appears in Explore again; activity shows Returned.
+10. Refresh the page, then stop and restart the server. The listing and Returned history remain.
 
-### 1. Problem and research
+## Show the requested Rahul approval message
 
-“We wanted the convenience of Pastebin for more than text, while making temporary access understandable. Pastebin informed the paste/unlisted/expiry flow. PrivateBin showed why access links and actual encryption are different promises. We chose a locally runnable MVP, not a cloud-dependent release.”
+1. Select **Amritanshu** and request **Rahul's Cricket Bat**.
+2. Choose a future return date. Selecting 22 November in the current year produces the example date when that date has not passed; otherwise use another valid date.
+3. Select **Rahul**, open My Activity, and approve the request.
+4. Select **Amritanshu**, open My Activity, and show:
 
-Show [RESEARCH.md](RESEARCH.md). State that this is desk research, not user validation.
+   > Request approved — Accepted
+   >
+   > Rahul has approved your request for his Cricket Bat.
+   >
+   > Please contact the owner to arrange the handover.
+   >
+   > Owner: Rahul
+   >
+   > Demo contact: rahul@example.com
+   >
+   > Expected return: the date chosen in step 2.
 
-### 2. Text/code — prove the whole flow
+5. Select Rahul and mark the bat returned before repeating the demo.
 
-1. Open **New share** → **Code**.
-2. Title: `Quick CSV summary`; language: Python; expiry: 1 day.
-3. Paste:
+## Show competing requests
 
-   ```python
-   import csv
+1. With Rahul's Cricket Bat available, request it as **Amritanshu**.
+2. Switch to **Priya** and request the same bat.
+3. Switch to **Rahul**. Both requests are Pending in My Activity.
+4. Approve Amritanshu's request. Priya's request is automatically Rejected.
+5. Switch to Priya to show the rejected request, then Amritanshu to show the approval/contact card.
+6. The bat is absent from Explore. Switch to Rahul to record its return.
 
-   with open("notes.csv", newline="") as file:
-       rows = list(csv.DictReader(file))
-       print(f"{len(rows)} resources ready to share")
-   ```
+## Show rejection and validation
 
-4. Create and show the preview with preserved indentation.
-5. Copy the URL; open it in incognito. No signup required.
-6. Copy the content and download it as text.
-7. In the owner's workspace, show the resource and recipient view count.
-8. Demonstrate that the incognito workspace does not list the owner's resources.
+- Request an available Rahul-owned item as Priya; switch to Rahul and reject it. The item stays available.
+- An owner sees “Your item,” rather than a borrow button, on their own listings.
+- Required listing fields and the date picker guide input. Backend validation also rejects invalid dates, self-borrowing, non-owner decisions, duplicate Pending requests, and stale actions.
+- Refresh after changes to demonstrate saved state. The app does not automatically reset or re-create seed items on restart.
 
-### 3. Documents and links
+## Focused automated check
 
-1. Upload a small TXT or CSV file. Show the escaped preview and complete download.
-2. Upload a PDF if time permits; explain why it is download-only.
-3. Share `https://example.com` as a Link.
-4. Show the explicit destination and external-navigation warning.
+macOS / Linux:
 
-### 4. Revocation — include the negative path
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+```
 
-1. Revoke an active share as the owner; confirm the prompt.
-2. Reload its recipient URL: it returns a closed-access page.
-3. Try the same URL with `/download` appended: access is also denied.
-4. The owner dashboard shows **Revoked**; there is no restore button.
+Windows PowerShell or Command Prompt:
 
-### 5. Expiry — no clock changes needed
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-1. Create a text share with **1 minute · demo**.
-2. Open it in incognito while active.
-3. Continue the architecture explanation; after the minute passes, reload.
-4. Show the 410 page; try `/download` too.
-5. Explain that cached/saved copies cannot be recalled and open pages are not live-erased.
-
-### 6. Persistence and validation
-
-1. Create a one-day share, stop with Ctrl+C, restart, reload its URL.
-2. Submit an unsupported/disguised file or a `javascript:` link to show server validation.
-3. Optionally disable JavaScript and demonstrate basic form submission.
-
-### 7. Design and growth
-
-Show [DECISIONS.md](DECISIONS.md) and [SCALING.md](SCALING.md).
-
-“SQLite and local documents make this easy to run. Signed browser ownership avoids signup but loses recovery. Every read checks lifecycle state. A real hosted version needs TLS, recoverable identity, global abuse controls, private object storage, and eventually PostgreSQL when contention or multiple instances justify it.”
-
-## Judging evidence map
-
-| Criterion | Evidence |
-| --- | --- |
-| Working demo | Live create → recipient view/download → revoke/expire |
-| Research | Linked sources and resulting decisions in RESEARCH.md |
-| Functionality | Acceptance criteria and automated integration tests |
-| UI decisions | Dedicated create/share/manage views, responsive layout, native controls |
-| Backend decisions | Lifecycle guard, owner hash, private storage, validation |
-| Tradeoffs | Browser identity, PDF downloads, unlisted not encrypted, bounded dashboard |
-| Scale scope | Trigger-based roadmap, not premature distributed infrastructure |
-| Local run | Dedicated instruction-only SETUP.md |
-
-## Do not claim
-
-Production readiness, guaranteed privacy, E2E encryption, unique-user analytics, automatic physical expiry deletion, prevention of saved copies, tested load capacity, or public link accessibility from a loopback URL.
+These checks use temporary databases and leave the visible demo untouched. They cover the complete lifecycle/contact card/restart, competing approvals/database uniqueness, and validation/owner/CSRF checks. No broad test suite is required for the demo.

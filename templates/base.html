@@ -1,28 +1,26 @@
+{% from 'macros.html' import icon, csrf with context %}
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
-  <title>{% block title %}Relay — Share for a moment{% endblock %}</title>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Borrow what you need. Share what you have. A campus community sharing demo.">
+  <title>{% block title %}Explore{% endblock %} · Campus Commons</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to content</a>
-  <header class="header">
-    <a class="brand" href="{{ url_for('dashboard') }}" aria-label="Relay home"><span class="brand-mark" aria-hidden="true">r</span>relay<span class="brand-dot">.</span></a>
-    <nav aria-label="Main navigation">
-      <a class="nav-link" href="{{ url_for('dashboard') }}">My resources</a>
-      <a class="button small" href="{{ url_for('new_share') }}"><span aria-hidden="true">＋</span> New share</a>
-    </nav>
-  </header>
-  <main id="main">
-    {% for message in get_flashed_messages() %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><div class="header-inner">
+    <a class="brand" href="{{ url_for('explore') }}"><span class="brand-mark">{{ icon('logo') }}</span><span>campus<span class="brand-light">commons</span><small>A little sharing goes a long way.</small></span></a>
+    <nav class="main-nav" aria-label="Main navigation"><a href="{{ url_for('explore') }}" {% if request.endpoint == 'explore' %}aria-current="page"{% endif %}>{{ icon('grid') }} Explore</a><a href="{{ url_for('activity') }}" {% if request.endpoint == 'activity' %}aria-current="page"{% endif %}>{{ icon('activity') }} My Activity</a></nav>
+    <form class="identity" action="{{ url_for('switch_member') }}" method="post">{{ csrf() }}<input type="hidden" name="next" value="{{ 'activity' if request.endpoint == 'activity' else 'explore' }}"><span class="avatar avatar-{{ g.member.id }}" aria-hidden="true">{{ g.member.name[0] }}</span><div><label for="member">Demo member</label><select name="member_id" id="member" data-member-switch>{% for m in g.members %}<option value="{{ m.id }}" {% if m.id == g.member.id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></div><button class="switch-button" type="submit">Switch</button></form>
+  </div></header>
+  <div class="community-bar"><div class="container">{{ icon('people') }} <span>North Campus Community</span><span class="community-divider">/</span><span class="muted">Made for your circle.</span><span class="demo-pill">Hackathon demo</span></div></div>
+  <main id="main" class="container">
+    {% for category, message in get_flashed_messages(with_categories=true) %}<div class="notice notice-{{ category }}" role="status">{{ icon('check') }}<span>{{ message }}</span></div>{% endfor %}
     {% block content %}{% endblock %}
   </main>
-  <footer><span>Made to be shared. Not stored forever.</span><span>Local workspace <span class="live-dot" aria-hidden="true"></span></span></footer>
-  <p class="toast" id="toast" role="status" hidden></p>
+  <footer class="site-footer container"><span>{{ icon('logo') }} Less buying. More belonging.</span><p>Demo identities only · Free borrowing · Handovers arranged outside the app</p></footer>
 </body>
 </html>

@@ -1,3 +1,3 @@
-{% extends "base.html" %}
-{% block title %}{{ code }} — Relay{% endblock %}
-{% block content %}<section class="error-page"><div class="eyebrow">RELAY / {{ code }}</div><h1>{% if code == 410 %}That moment<br>has <span class="serif">passed.</span>{% elif code == 404 %}A little<br><span class="serif">off track.</span>{% else %}Let's try<br>that <span class="serif">again.</span>{% endif %}</h1><p>{{ message }}</p><a class="button" href="/">Back to workspace ↗</a></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Something needs your attention{% endblock %}
+{% block content %}<section class="error-panel"><span class="eyebrow">LET'S GET YOU BACK ON TRACK · {{ code }}</span><h1>A small pause.</h1><p>{{ message }}</p><div class="request-actions"><a class="button" href="{{ url_for('explore') }}">Explore items</a><a class="button secondary" href="{{ url_for('activity') }}">My Activity</a></div></section>{% endblock %}

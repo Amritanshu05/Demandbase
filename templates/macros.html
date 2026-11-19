@@ -1,0 +1,46 @@
+{% macro icon(name, extra='') -%}
+<svg class="icon {{ extra }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if name == 'logo' %}<path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"/><path d="m4 8.5 8 4.5 8-4.5M12 13v7M8 6.2l8 4.6"/>
+{% elif name == 'sports' %}<path d="m5 19 5-5m-6 6 2-2m5-5-3-3 8-8 6 6-8 8-3-3Z"/><path d="m13 7 4 4"/>
+{% elif name == 'electronics' %}<rect x="3" y="5" width="18" height="12" rx="3"/><circle cx="15" cy="11" r="3"/><path d="M6 9h2m-2 4h2m0 7h8m-4-3v3"/>
+{% elif name == 'books' %}<path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15"/><path d="M6 8h3m-3 4h3m6-4h3m-3 4h3"/>
+{% elif name == 'tools' %}<path d="M14 4a6 6 0 0 0-7 8L3 16a3 3 0 0 0 4 4l5-5a6 6 0 0 0 8-7l-4 4-4-4 4-4Z"/>
+{% elif name == 'outdoors' %}<path d="m2 20 10-16 10 16H2Zm6 0 4-7 4 7M10 7l-1-3m5 3 1-3"/>
+{% elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
+{% elif name == 'check' %}<path d="m5 12 4 4L19 6"/>
+{% elif name == 'calendar' %}<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 4h2m4 0h2"/>
+{% elif name == 'activity' %}<path d="M8 4h8m-9 2H5v15h14V6h-2M9 3h6v4H9zM8 12h8m-8 4h5"/>
+{% elif name == 'grid' %}<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>
+{% elif name == 'people' %}<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m1-17a3 3 0 0 1 0 6m3 11v-3a6 6 0 0 0-3-5"/>
+{% else %}<path d="m4 7 8-4 8 4v10l-8 4-8-4V7Zm0 0 8 4 8-4m-8 4v10"/>{% endif %}
+</svg>
+{%- endmacro %}
+
+{% macro csrf() -%}<input type="hidden" name="csrf" value="{{ session.csrf }}">{%- endmacro %}
+
+{% macro request_card(r, incoming=false) %}
+<article class="request-card">
+  <div class="request-top">
+    <div class="request-item"><span class="mini-art art-{{ categories[r.category] }}">{{ icon(categories[r.category]) }}</span><div><span class="eyebrow">{{ r.category }}</span><h3>{{ r.item_name }}</h3></div></div>
+    <span class="badge status-{{ r.status|lower }}">{{ r.status }}</span>
+  </div>
+  <p class="request-person">{% if incoming %}<strong>{{ r.borrower_name }}</strong> wants to borrow your item.{% else %}Listed by <strong>{{ r.owner_name }}</strong>{% endif %}</p>
+  <p class="date-line">{{ icon('calendar') }} Expected return: <strong>{{ r.expected_return|return_date }}</strong></p>
+  {% if incoming and r.status == 'Pending' %}
+  <div class="request-actions"><form action="{{ url_for('decide_request', request_id=r.id, action='approve') }}" method="post">{{ csrf() }}<button class="button small" type="submit">Approve request</button></form><form action="{{ url_for('decide_request', request_id=r.id, action='reject') }}" method="post">{{ csrf() }}<button class="button secondary small" type="submit">Reject</button></form></div>
+  {% elif incoming and r.status == 'Approved' %}
+  <p class="helper">Arrange the handover outside the app. Record the return once you have your item back.</p>
+  <form action="{{ url_for('decide_request', request_id=r.id, action='return') }}" method="post">{{ csrf() }}<button class="button small" type="submit">Mark as returned</button></form>
+  {% elif not incoming and r.status == 'Approved' %}
+  <section class="approval" aria-label="Request approved">
+    <div class="approval-heading"><h4>{{ icon('check') }} Request approved</h4><span class="badge accepted">Accepted</span></div>
+    <p>{{ r.owner_name }} has approved your request for {% if r.owner_name == 'Rahul' %}his{% elif r.owner_name == 'Priya' %}her{% else %}their{% endif %} {{ r.item_name }}.</p>
+    <p>Please contact the owner to arrange the handover.</p>
+    <dl><div><dt>Owner:</dt><dd>{{ r.owner_name }}</dd></div><div><dt>Demo contact:</dt><dd><a href="mailto:{{ r.owner_email }}">{{ r.owner_email }}</a></dd></div><div><dt>Expected return:</dt><dd>{{ r.expected_return|return_date }}</dd></div></dl>
+    <p class="contact-note">Fictional contact for the hackathon demo.</p>
+  </section>
+  {% elif r.status == 'Pending' %}<p class="helper">Waiting for the owner. Borrowing starts when your request is approved.</p>
+  {% elif r.status == 'Rejected' %}<p class="helper">This request was declined, or another borrower was approved. You can explore other available items.</p>
+  {% elif r.status == 'Returned' %}<p class="helper">Return recorded. Thanks for keeping good things in circulation.</p>{% endif %}
+</article>
+{% endmacro %}
