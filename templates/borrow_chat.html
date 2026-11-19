@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}{{ borrow.item_name }} · Borrow chat{% endblock %}
+{% block content %}
+<div class="chat-page-heading"><a class="text-link" href="{{ url_for('dashboard') }}">Back to My Dashboard</a><span class="eyebrow">A CONVERSATION FOR THIS BORROW</span><h1>{{ borrow.item_name }}</h1><p>Agree on a handover here. The physical exchange is arranged by you.</p></div>
+<div class="chat-layout">
+  <aside class="borrow-summary" aria-label="Borrow details">
+    <span class="mini-art art-{{ categories[borrow.category] }}">{{ icon(categories[borrow.category]) }}</span>
+    <h2>Borrow details</h2><span class="badge status-{{ borrow.status|lower }}">{{ borrow.status }}</span>
+    <dl><div><dt>Owner</dt><dd>{{ borrow.owner_name }}</dd></div><div><dt>Borrower</dt><dd>{{ borrow.borrower_name }}</dd></div><div><dt>Expected return</dt><dd>{{ borrow.expected_return|return_date }}</dd></div></dl>
+    <p class="helper">Only this borrow's two participants can open this conversation under their selected demo identity.</p>
+    {% if borrow.status == 'Approved' and g.member.id == borrow.owner_id %}<form action="{{ url_for('decide_request', request_id=borrow.id, action='return') }}" method="post">{{ csrf() }}<button class="button secondary small" type="submit">Mark as returned</button></form>{% endif %}
+  </aside>
+  <section class="chat-panel" aria-labelledby="conversation-heading">
+    <header class="chat-panel-heading"><div>{{ icon('chat') }}<h2 id="conversation-heading">Borrow chat</h2></div><a class="button secondary small" href="{{ url_for('borrow_chat', request_id=borrow.id, _anchor='messages-end') }}">Refresh messages</a></header>
+    <p class="chat-explainer">Messages are saved. Use Refresh messages to see new replies. Keep phone numbers and home addresses out of the demo.</p>
+    <div class="message-list" aria-label="Messages">
+      {% for message in messages %}
+      <article class="message{% if message.sender_id == g.member.id %} message-mine{% endif %}"><div class="message-meta"><strong>{{ message.sender_name }}{% if message.sender_id == g.member.id %} <span>(you)</span>{% endif %}</strong><time datetime="{{ message.created_at }}">{{ message.created_at|message_time }}</time></div><p>{{ message.body }}</p></article>
+      {% else %}<div class="chat-empty"><span class="empty-icon">{{ icon('chat') }}</span><h3>A small hello gets things moving.</h3><p>{% if borrow.status == 'Returned' %}No messages were sent during this borrow.{% else %}Suggest a shared campus meeting spot or ask about a convenient time.{% endif %}</p></div>{% endfor %}
+      <div id="messages-end"></div>
+    </div>
+    {% if borrow.status == 'Approved' %}
+    <form class="message-composer" action="{{ url_for('send_message', request_id=borrow.id) }}" method="post">{{ csrf() }}
+      {% if error %}<div class="notice notice-error" role="alert" id="message-error">{{ error }}</div>{% endif %}
+      <div class="field"><label for="body">Message as {{ g.member.name }}</label><textarea id="body" name="body" rows="3" maxlength="1000" required aria-describedby="message-help{% if error %} message-error{% endif %}" {% if error %}aria-invalid="true"{% endif %} placeholder="Hi! Shall we meet at the campus cafe?">{{ draft }}</textarea><span class="helper" id="message-help">Plain text only · 1–1,000 characters</span></div>
+      <button class="button" type="submit">Send message</button>
+    </form>
+    {% else %}<div class="chat-readonly" role="status">{{ icon('check') }}<p><strong>Item returned. This conversation is read-only.</strong><br>You can revisit the messages, but no new messages can be sent.</p></div>{% endif %}
+  </section>
+</div>
+{% endblock %}

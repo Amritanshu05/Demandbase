@@ -49,6 +49,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_approved_per_item
 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_per_borrower
     ON borrow_requests(item_id, borrower_id) WHERE status = 'Pending';
 CREATE INDEX IF NOT EXISTS requests_borrower ON borrow_requests(borrower_id);
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    borrow_request_id INTEGER NOT NULL REFERENCES borrow_requests(id),
+    sender_id INTEGER NOT NULL REFERENCES members(id),
+    body TEXT NOT NULL CHECK(length(trim(body)) BETWEEN 1 AND 1000),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_borrow_order
+    ON messages(borrow_request_id, created_at, id);
 """
 
 ITEM_QUERY = """
@@ -71,6 +80,27 @@ def timestamp():
 
 def today():
     return current_app.config.get("TODAY") or datetime.now(COMMUNITY_TZ).date()
+
+
+def find_conversation(request_id):
+    borrow = get_db().execute(ACTIVITY_QUERY + " WHERE r.id=?", (request_id,)).fetchone()
+    if borrow is None:
+        abort(404)
+    if g.member["id"] not in (borrow["owner_id"], borrow["borrower_id"]):
+        abort(403, description="Only this borrow's owner and borrower can access its conversation.")
+    if borrow["status"] not in ("Approved", "Returned"):
+        abort(409, description="Chat becomes available after the owner approves a borrow request.")
+    return borrow
+
+
+def render_conversation(borrow, draft="", error=None, status=200):
+    messages = get_db().execute(
+        """SELECT m.*, u.name AS sender_name FROM messages m
+           JOIN members u ON u.id=m.sender_id
+           WHERE m.borrow_request_id=? ORDER BY m.created_at,m.id""", (borrow["id"],)
+    ).fetchall()
+    return render_template("borrow_chat.html", borrow=borrow, messages=messages,
+                           draft=draft, error=error), status
 
 
 def get_db():
@@ -187,6 +217,11 @@ def create_app(config=None):
         label = f"{parsed.day} {parsed.strftime('%B')}"
         return label if parsed.year == today().year else f"{label} {parsed.year}"
 
+    @app.template_filter("message_time")
+    def message_time(value):
+        parsed = datetime.fromisoformat(value).astimezone(COMMUNITY_TZ)
+        return parsed.strftime("%d %b %Y, %H:%M IST")
+
     @app.get("/")
     def explore():
         db = get_db()
@@ -204,7 +239,7 @@ def create_app(config=None):
             abort(400, description="Choose one of the demo members.")
         session["member_id"] = selected
         # Preserve only known destinations; never redirect to an arbitrary submitted URL.
-        destination = "activity" if request.form.get("next") == "activity" else "explore"
+        destination = "dashboard" if request.form.get("next") in ("activity", "dashboard", "chat") else "explore"
         return redirect(url_for(destination), code=303)
 
     @app.get("/items/new")
@@ -259,21 +294,67 @@ def create_app(config=None):
                             (item_id, g.member["id"], expected.isoformat(), timestamp()),
                         )
                 except sqlite3.IntegrityError:
-                    abort(409, description="You already have a pending request for this item. Check My Activity.")
-                flash(f"Request sent to {item['owner_name']}. You can follow it in My Activity.", "success")
-                return redirect(url_for("activity"), code=303)
+                    abort(409, description="You already have a pending request for this item. Check My Dashboard.")
+                flash(f"Request sent to {item['owner_name']}. You can follow it in My Dashboard.", "success")
+                return redirect(url_for("dashboard"), code=303)
         return render_template("request_item.html", item=item, value=value, error=error), (422 if error else 200)
 
     @app.get("/activity")
     def activity():
-        rows = get_db().execute(
+        return redirect(url_for("dashboard"), code=303)
+
+    @app.get("/dashboard")
+    def dashboard():
+        db = get_db()
+        rows = db.execute(
             ACTIVITY_QUERY + " WHERE i.owner_id=? OR r.borrower_id=? ORDER BY r.id DESC",
             (g.member["id"], g.member["id"]),
         ).fetchall()
-        incoming = [r for r in rows if r["owner_id"] == g.member["id"]]
+        listings = db.execute(ITEM_QUERY + " WHERE i.owner_id=? ORDER BY i.id DESC", (g.member["id"],)).fetchall()
+        incoming = {}
+        for row in rows:
+            if row["owner_id"] == g.member["id"]:
+                incoming.setdefault(row["item_id"], []).append(row)
+        owned = []
+        for listing in listings:
+            requests = incoming.get(listing["id"], [])
+            owned.append({
+                "listing": listing,
+                "active": next((r for r in requests if r["status"] == "Approved"), None),
+                "pending": [r for r in requests if r["status"] == "Pending"],
+                "history": [r for r in requests if r["status"] in ("Returned", "Rejected")],
+            })
         outgoing = [r for r in rows if r["borrower_id"] == g.member["id"]]
-        return render_template("activity.html", incoming=incoming, outgoing=outgoing,
-                               pending_count=sum(r["status"] == "Pending" for r in incoming))
+        borrowing = [r for r in outgoing if r["status"] == "Approved"]
+        pending = [r for r in outgoing if r["status"] == "Pending"]
+        history = [r for r in outgoing if r["status"] in ("Returned", "Rejected")]
+        return render_template("dashboard.html", owned=owned, borrowing=borrowing,
+                               pending=pending, history=history,
+                               lent_count=sum(bool(entry["active"]) for entry in owned))
+
+    @app.get("/borrows/<int:request_id>")
+    def borrow_chat(request_id):
+        return render_conversation(find_conversation(request_id))
+
+    @app.post("/borrows/<int:request_id>/messages")
+    def send_message(request_id):
+        draft = request.form.get("body", "")
+        body = draft.strip()
+        error = None
+        with write_transaction() as db:
+            borrow = find_conversation(request_id)
+            if borrow["status"] != "Approved":
+                abort(409, description="This item has been returned. Its conversation is now read-only.")
+            if not 1 <= len(body) <= 1000:
+                error = "Enter a message between 1 and 1,000 characters."
+            else:
+                db.execute(
+                    "INSERT INTO messages(borrow_request_id,sender_id,body,created_at) VALUES(?,?,?,?)",
+                    (request_id, g.member["id"], body, timestamp()),
+                )
+        if error:
+            return render_conversation(borrow, draft=draft, error=error, status=422)
+        return redirect(url_for("borrow_chat", request_id=request_id), code=303)
 
     @app.post("/requests/<int:request_id>/<action>")
     def decide_request(request_id, action):
@@ -288,7 +369,7 @@ def create_app(config=None):
             if row["owner_id"] != g.member["id"]:
                 abort(403, description="Only the item owner can approve, reject, or record its return.")
             if row["status"] != required:
-                abort(409, description="This request has already changed. Open My Activity to see its current status.")
+                abort(409, description="This request has already changed. Open My Dashboard to see its current status.")
             if action == "approve":
                 if db.execute("SELECT 1 FROM borrow_requests WHERE item_id=? AND status='Approved'", (row["item_id"],)).fetchone():
                     abort(409, description="This item already has an approved borrow.")
@@ -296,12 +377,12 @@ def create_app(config=None):
             if action == "approve":
                 db.execute("UPDATE borrow_requests SET status='Rejected' WHERE item_id=? AND id<>? AND status='Pending'", (row["item_id"], request_id))
         messages = {
-            "approve": "Request approved. The borrower can now see your demo contact details. Other pending requests for this item were declined.",
+            "approve": "Request approved. Open the borrow chat to arrange the handover. Other pending requests for this item were declined.",
             "reject": "Request rejected. Your item is still available.",
             "return": "Return recorded. Your item is available to borrow again.",
         }
         flash(messages[action], "success")
-        return redirect(url_for("activity"), code=303)
+        return redirect(url_for("dashboard"), code=303)
 
     @app.get("/health")
     def health():

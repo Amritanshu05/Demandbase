@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% from 'macros.html' import request_card, request_controls, incoming_request with context %}
+{% block title %}My Dashboard{% endblock %}
+{% block content %}
+<div class="page-heading dashboard-heading">
+  <div><span class="eyebrow">YOUR SHARING CIRCLE</span><h1>My Dashboard</h1><p>Hi {{ g.member.name }}. Everything you're sharing, borrowing, and passing along.</p></div>
+  <a class="button" href="{{ url_for('new_item') }}">{{ icon('plus') }} List an item</a>
+</div>
+<div class="dashboard-stats" aria-label="Your sharing summary">
+  <div><span>{{ icon('other') }} Your items</span><strong>{{ owned|length }}</strong></div>
+  <div><span>{{ icon('people') }} Lent out</span><strong>{{ lent_count }}</strong></div>
+  <div><span>{{ icon('logo') }} Actively borrowing</span><strong>{{ borrowing|length }}</strong></div>
+</div>
+<div class="dashboard-grid">
+  <section aria-labelledby="owned-heading">
+    <div class="activity-heading"><h2 id="owned-heading">My Items</h2><span class="count-pill">{{ owned|length }} owned</span></div>
+    <p class="section-description">Your whole shelf, including the things out making someone's day.</p>
+    <div class="request-list">
+    {% for entry in owned %}{% set item = entry.listing %}
+      <article class="owned-card" data-item-id="{{ item.id }}">
+        <div class="request-top"><div class="request-item"><span class="mini-art art-{{ categories[item.category] }}">{{ icon(categories[item.category]) }}</span><div><span class="eyebrow">{{ item.category }} · {{ item.condition }}</span><h3>{{ item.name }}</h3></div></div><span class="badge {{ 'status-approved' if entry.active else 'status-available' }}">{{ 'Lent Out' if entry.active else 'Available' }}</span></div>
+        <p class="owned-description">{{ item.description }}</p>
+        {% if entry.active %}
+          <div class="active-loan"><p class="request-person">Borrower: <strong>{{ entry.active.borrower_name }}</strong></p><p class="date-line">{{ icon('calendar') }} Expected return: <strong>{{ entry.active.expected_return|return_date }}</strong></p>{{ request_controls(entry.active) }}</div>
+        {% elif not entry.pending %}<p class="helper owned-ready">Ready for its next borrow. No pending requests.</p>{% endif %}
+        {% if entry.pending %}<div class="incoming-list"><h4>Pending requests <span class="count-pill">{{ entry.pending|length }}</span></h4>{% for r in entry.pending %}{{ incoming_request(r) }}{% endfor %}</div>{% endif %}
+        {% if entry.history %}<details class="lending-history"><summary>Lending history · {{ entry.history|length }}</summary>{% for r in entry.history %}{{ incoming_request(r) }}{% endfor %}</details>{% endif %}
+      </article>
+    {% else %}
+      <div class="empty-state"><span class="empty-icon">{{ icon('other') }}</span><h3>Give an idle item a new adventure.</h3><p>Everything you list will appear here, ready for you to manage.</p><a class="button secondary small" href="{{ url_for('new_item') }}">List an item</a></div>
+    {% endfor %}
+    </div>
+  </section>
+  <section aria-labelledby="borrowing-heading">
+    <div class="activity-heading"><h2 id="borrowing-heading">Borrowing</h2><span class="count-pill">{{ borrowing|length }} active</span></div>
+    <p class="section-description">What you're enjoying now, what you've requested, and what you've returned.</p>
+    {% if borrowing %}<h3 class="group-heading">Actively borrowing</h3><div class="request-list">{% for r in borrowing %}{{ request_card(r) }}{% endfor %}</div>{% endif %}
+    {% if pending %}<h3 class="group-heading">Awaiting approval <span class="count-pill">{{ pending|length }}</span></h3><div class="request-list">{% for r in pending %}{{ request_card(r) }}{% endfor %}</div>{% endif %}
+    {% if not borrowing and not pending %}<div class="empty-state"><span class="empty-icon">{{ icon('logo') }}</span><h3>Your next good borrow is out there.</h3><p>Request something from the community shelf. Your active borrows will appear here.</p><a class="button secondary small" href="{{ url_for('explore') }}">Explore items</a></div>{% endif %}
+    {% if history %}<details class="borrowing-history" open><summary>Past requests <span class="count-pill">{{ history|length }}</span></summary><div class="request-list">{% for r in history %}{{ request_card(r) }}{% endfor %}</div></details>{% endif %}
+  </section>
+</div>
+{% endblock %}

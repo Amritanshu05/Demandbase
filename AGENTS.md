@@ -2,7 +2,7 @@
 
 ## Product
 
-Build the physical-item borrowing MVP described in `Community_Resource_Sharing_MVP_v0.1.md`, with the agreed additions in `README.md`. Members list movable goods, request borrowing, approve/reject, and record returns. Approved borrowers see fictional owner contact details. Keep delivery local; no chat, payments, uploads, real authentication, or reservations.
+Build the physical-item borrowing MVP described in `Community_Resource_Sharing_MVP_v0.3.md`, with the agreed exceptions in `README.md`. Members list movable goods, manage their inventory, request borrowing, approve/reject, chat about approved borrows, and record returns. Keep delivery local with Flask/Jinja and SQLite; no React/Supabase migration, payments, uploads, real authentication, or reservations.
 
 ## Implementation
 
@@ -12,6 +12,10 @@ Build the physical-item borrowing MVP described in `Community_Resource_Sharing_M
 - Seed Amritanshu, Rahul, and Priya once. Demo identity selection is intentionally not secure authentication.
 - Enforce owner checks and valid state transitions in the backend. Never trust submitted owner/member fields.
 - Approval must recheck availability inside a write transaction, reject competing Pending requests, and preserve the unique Approved-per-item database index.
+- Dashboard inventory includes every owned listing, even with no requests. Borrowing separates Approved, Pending, and past requests.
+- Chat belongs to one borrow request. Check participation on every read/send; allow reads for Approved/Returned and writes only for Approved. Validate writes inside the same transaction as the status check.
+- Messages are escaped plain text, 1–1,000 trimmed characters, with sender derived from the session. Returned chat is read-only. No WebSockets or polling.
+- Schema upgrades are additive and automatic. Preserve existing listings, requests, seed marker, signing key, and approval constraints.
 - Keep SQL parameterized, templates escaped, and POST forms CSRF-protected.
 - Keep core forms usable without JavaScript and retain visible keyboard focus.
 

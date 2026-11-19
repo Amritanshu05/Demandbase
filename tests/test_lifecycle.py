@@ -8,7 +8,7 @@ from datetime import date
 from app import create_app, get_db
 
 
-class BorrowingSmokeTests(unittest.TestCase):
+class BorrowingTestCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -30,6 +30,8 @@ class BorrowingSmokeTests(unittest.TestCase):
         with self.app.app_context():
             return [row[0] for row in get_db().execute("SELECT status FROM borrow_requests ORDER BY id")]
 
+
+class BorrowingSmokeTests(BorrowingTestCase):
     def test_listing_borrow_approve_contact_return_and_restart(self):
         response = self.post("/items", name="Tripod <script>", category="Electronics",
                              condition="Good", description="A steady camera stand.")
@@ -38,12 +40,12 @@ class BorrowingSmokeTests(unittest.TestCase):
         self.assertEqual(self.post("/items/1/request", expected_return="2026-11-22").status_code, 303)
         self.assertEqual(self.states(), ["Pending"])
         self.switch(2)
-        self.assertIn(b"Amritanshu", self.client.get("/activity").data)
+        self.assertIn(b"Amritanshu", self.client.get("/dashboard").data)
         self.assertEqual(self.post("/requests/1/approve").status_code, 303)
         self.switch(1)
-        html = self.client.get("/activity").get_data(as_text=True)
+        html = self.client.get("/dashboard").get_data(as_text=True)
         for text in ("Request approved", "Accepted", "Rahul has approved your request for his Cricket Bat.",
-                     "rahul@example.com", "22 November", "Please contact the owner to arrange the handover."):
+                     "rahul@example.com", "22 November", "Please message the owner here to arrange the handover."):
             self.assertIn(text, html)
         self.assertNotIn(b"Cricket Bat", self.client.get("/").data)
         self.switch(2)

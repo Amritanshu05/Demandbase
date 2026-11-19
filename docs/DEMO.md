@@ -1,58 +1,46 @@
-# Campus Commons — hackathon walkthrough
+# Campus Commons — V0.3 hackathon walkthrough
 
-Start the app using [STARTUP.md](../STARTUP.md). For a clean demo, follow the [database reset instructions](../README.md#reset-the-demo-database). All contacts are fictional. Identity selection is a deliberate demo shortcut, not authentication. If an item used below is already borrowed from a previous run, its owner can mark it returned in My Activity, or you can create a new listing.
+Start using [STARTUP.md](../STARTUP.md), with macOS/Linux and Windows commands. Existing databases upgrade automatically; no reset is required. For an optional clean demo, use the [reset instructions](../README.md#reset-the-demo-database), which also remove chat history. Use only non-sensitive sample messages. Identities and contacts are fictional.
 
-## List and borrow an item
+## List → request → dashboard → chat → return
 
-1. Select **Amritanshu** in the header.
-2. Choose **List an item**. Create “Demo Tripod” with category Electronics, condition Good, and a short description.
-3. Confirm it appears in Explore with Amritanshu as owner and “Your item · available.”
-4. Switch to **Priya**. Find Demo Tripod and choose **Request to borrow**.
-5. Select today or a future expected return date and send the request. My Activity shows Pending.
-6. Switch to **Amritanshu** and open **My Activity**. Approve Priya's incoming request.
-7. Switch to **Priya**. My Activity shows **Request approved**, **Accepted**, Amritanshu's demo contact, and the saved return date. Explain that handover is arranged outside the app.
-8. Explore no longer shows Demo Tripod while the Approved borrow is active.
-9. Switch to **Amritanshu** and mark it returned. It appears in Explore again; activity shows Returned.
-10. Refresh the page, then stop and restart the server. The listing and Returned history remain.
+1. Select **Rahul**, choose **List an item**, and create “Demo Cricket Bat” with Sports / Good and a short description.
+2. Open **My Dashboard**. Show the bat under **My Items**, marked **Available**, even with no requests.
+3. Select **Amritanshu**. Request that bat in Explore with today or a future return date. My Dashboard shows **Awaiting approval**.
+4. Select **Rahul**. The bat's card contains Amritanshu's Pending request. Approve it.
+5. Show Rahul's bat as **Lent Out**, with **Amritanshu** and the return date. It disappears from Explore.
+6. Select **Amritanshu**. Under **Borrowing / Actively borrowing**, show **Request approved**, **Accepted**, and **Open chat**. Expand **Demo contact details** to show `rahul@example.com` if desired.
+7. Open chat and send: “Hi Rahul! Would the campus cafe work for the handover?”
+8. Select **Rahul**. Switching from chat returns to My Dashboard. Open the bat's chat and reply: “Yes, let's meet there after class.”
+9. Select Amritanshu, reopen chat, and show the reply. **Refresh messages** retrieves new replies. The app supports a conversation; users arrange physical exchange themselves.
+10. Select **Priya**. My Dashboard shows her own items/requests. Opening the same `/borrows/<id>` returns **403**. Sending is also denied while selected as Priya.
+11. Select **Rahul** and mark the bat returned from My Dashboard or chat. It becomes Available, with no current borrower on the item card.
+12. Select **Amritanshu**. The record appears in **Past requests** as Returned. Open **View conversation**: messages remain, a read-only notice is shown, and there is no send box.
+13. Refresh, stop/restart the server, and show the listing, Returned record, and messages persist.
 
-## Show the requested Rahul approval message
+The selector intentionally allows choosing another participant. The Priya check demonstrates access control against the selected identity, not authenticated privacy.
 
-1. Select **Amritanshu** and request **Rahul's Cricket Bat**.
-2. Choose a future return date. Selecting 22 November in the current year produces the example date when that date has not passed; otherwise use another valid date.
-3. Select **Rahul**, open My Activity, and approve the request.
-4. Select **Amritanshu**, open My Activity, and show:
+## Seeded Rahul approval example
 
-   > Request approved — Accepted
-   >
-   > Rahul has approved your request for his Cricket Bat.
-   >
-   > Please contact the owner to arrange the handover.
-   >
-   > Owner: Rahul
-   >
-   > Demo contact: rahul@example.com
-   >
-   > Expected return: the date chosen in step 2.
+Use Rahul's seeded **Cricket Bat** for the same flow. Amritanshu's approval card says:
 
-5. Select Rahul and mark the bat returned before repeating the demo.
+> Request approved — Accepted
+>
+> Rahul has approved your request for his Cricket Bat.
+>
+> Please message the owner here to arrange the handover.
 
-## Show competing requests
+The expected return reflects the chosen date. **Open chat** is the main action; expandable contact details retain Owner: Rahul and Demo contact: rahul@example.com. If the bat is already lent, record return as Rahul before repeating.
 
-1. With Rahul's Cricket Bat available, request it as **Amritanshu**.
-2. Switch to **Priya** and request the same bat.
-3. Switch to **Rahul**. Both requests are Pending in My Activity.
-4. Approve Amritanshu's request. Priya's request is automatically Rejected.
-5. Switch to Priya to show the rejected request, then Amritanshu to show the approval/contact card.
-6. The bat is absent from Explore. Switch to Rahul to record its return.
+## Competing requests and rejection
 
-## Show rejection and validation
+1. With Rahul's bat Available, request it as Amritanshu, then Priya.
+2. Select Rahul. Both Pending requests appear beneath the same owned item.
+3. Approve Amritanshu. Priya's request becomes Rejected and cannot open chat.
+4. Show Amritanshu's active borrow and chat, then record return as Rahul. History remains readable. A subsequent borrow gets a separate conversation.
+5. Separately reject a Pending request to show that rejection leaves an item Available.
 
-- Request an available Rahul-owned item as Priya; switch to Rahul and reject it. The item stays available.
-- An owner sees “Your item,” rather than a borrow button, on their own listings.
-- Required listing fields and the date picker guide input. Backend validation also rejects invalid dates, self-borrowing, non-owner decisions, duplicate Pending requests, and stale actions.
-- Refresh after changes to demonstrate saved state. The app does not automatically reset or re-create seed items on restart.
-
-## Focused automated check
+## Focused verification
 
 macOS / Linux:
 
@@ -66,4 +54,4 @@ Windows PowerShell or Command Prompt:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-These checks use temporary databases and leave the visible demo untouched. They cover the complete lifecycle/contact card/restart, competing approvals/database uniqueness, and validation/owner/CSRF checks. No broad test suite is required for the demo.
+Six integration checks use temporary databases. They cover listing/borrow/return, competing approvals, validation/owner/CSRF rules, dashboard inventory, chat access and persistence, Returned read-only history, and upgrades preserving existing data. They do not change the visible demo database.

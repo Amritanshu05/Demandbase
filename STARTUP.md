@@ -65,4 +65,4 @@ set PORT=5002
 
 Open **http://127.0.0.1:5002**.
 
-The first start creates `instance/`, the SQLite database, the signing key, and demo data automatically. No environment file or API keys are required. Stop the server with **Ctrl+C**.
+The first start creates `instance/`, the SQLite database, the signing key, and demo data automatically. Existing databases receive the new chat table automatically when the app starts; no reset or manual migration command is needed. No environment file or API keys are required. Stop the server with **Ctrl+C**.

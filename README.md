@@ -2,7 +2,7 @@
 
 **Good things. Better shared.**
 
-A working, local community resource sharing MVP: list a physical item, request to borrow it, let the owner approve or reject, and record its return. Listings and requests live in SQLite and survive refreshes and restarts.
+A working, local community resource sharing MVP: list a physical item, request to borrow it, let the owner approve or reject, arrange the handover in borrow-specific chat, and record its return. Personal inventory, requests, and messages live in SQLite and survive refreshes and restarts.
 
 ## Run
 
@@ -24,7 +24,7 @@ Open **http://127.0.0.1:5001**. No external services or API keys are required.
 
 ## Reset the demo database
 
-Stop the server with **Ctrl+C** first. Run the commands below from the project directory. This removes all custom listings and request history; restarting recreates the three demo members and six original items. The session signing key is kept.
+Stop the server with **Ctrl+C** first. Run the commands below from the project directory. This removes all custom listings, request history, and chat messages; restarting recreates the three demo members and six original items. The session signing key is kept.
 
 **macOS / Linux**
 
@@ -54,11 +54,13 @@ Optionally copy `commons.sqlite3` elsewhere before removing it if you want to ke
 - Browse available items and create listings with a category, description, and condition.
 - Switch between Amritanshu, Rahul, and Priya. Every member can lend and borrow.
 - Submit a request with an expected return date of today or later.
-- View incoming and outgoing requests in My Activity.
+- View every owned item in **My Dashboard**, including Available items with no requests and Lent Out items with borrower/return details.
+- Follow active borrowing, pending requests, and past requests separately.
 - Owners approve or reject requests and record returns.
 - Approval locks the item and automatically rejects competing pending requests.
-- Approved borrowers see an “Accepted” card with the owner's fictional email and expected return date. Arrange handovers outside the app; there is no chat.
-- Returned items reappear in Explore; request history stays in My Activity.
+- Approved borrowers see a “Request approved / Accepted” card with **Open chat**, expected return date, and secondary fictional owner contact details.
+- Owner and borrower can exchange persisted plain-text messages for that borrow. Use **Refresh messages** for replies; no real-time connection is needed.
+- Returned items reappear in Explore. Request history and read-only conversations stay accessible from My Dashboard.
 - Backend validation, owner-only actions, CSRF-protected forms, and database integrity checks.
 
 ## Demo members
@@ -73,7 +75,7 @@ The member selector works without logging in. With JavaScript it switches immedi
 
 ## Quick demo
 
-As Amritanshu, request Rahul's Cricket Bat with a future return date. Switch to Rahul and approve it in My Activity. Switch back to Amritanshu to show the approval and `rahul@example.com` contact card. Switch to Rahul and mark it returned; the bat becomes available again. Refresh to show persistence.
+As Amritanshu, request Rahul's Cricket Bat with a future return date. Switch to Rahul and approve it in My Dashboard. Show the bat as **Lent Out** with Amritanshu and the expected return date. Switch back to Amritanshu to show it under Borrowing, open chat, and send a message. Switch to Rahul to reply, then mark it returned. The bat becomes available again, and the conversation becomes read-only.
 
 For competing approvals and listing creation, follow the [full demo walkthrough](docs/DEMO.md).
 
@@ -82,17 +84,20 @@ For competing approvals and listing creation, follow the [full demo walkthrough]
 | Document | Purpose |
 |---|---|
 | [Original MVP brief](Community_Resource_Sharing_MVP_v0.1.md) | Product requirements and exclusions |
+| [V0.3 brief](Community_Resource_Sharing_MVP_v0.3.md) | Proposed personal dashboard and borrow-chat requirements, retained as supplied |
 | [Startup](STARTUP.md) | Installation and run instructions only |
 | [Design](docs/DESIGN.md) | Architecture, screens, data model, routes, and state changes |
 | [Tradeoffs](docs/TRADEOFFS.md) | Choices, limitations, and deferred capabilities |
 | [Demo](docs/DEMO.md) | End-to-end judging walkthrough |
 | [Agent instructions](AGENTS.md) | Contributor conventions and project commands |
 
-Agreed changes to the original brief: use **three** seeded members; show demo owner contact after approval; deliver **locally**, replacing the deployed-URL acceptance requirement. The original brief is retained unchanged.
+V0.3 adds personal inventory and borrow-specific chat. Agreed choices override its suggested stack/deployment: retain **Flask/Jinja + SQLite**, server-rendered navigation, and **local-only delivery**. There is no React SPA, Supabase, or public hosting in this build. Keep all three demo members and the previous approval message, with chat as the primary coordination method and fictional contact details secondary. Both source briefs are retained unchanged.
+
+Existing databases upgrade automatically on the next start: a messages table/index is added, without resetting listings, requests, demo members, or the signing key. Existing Approved and Returned borrows can open an initially empty conversation. **You do not need to reset your database.**
 
 ## Verification
 
-Three focused integration checks exercise the lifecycle and contact card, competing approvals and the database guard, and backend validation/access control. They use temporary databases and do not modify your demo data.
+Six focused integration checks cover the lifecycle, approval guard, validation, personal inventory, chat participation/read-only history/message persistence, and upgrading existing data. They use temporary databases and do not modify your demo data.
 
 macOS / Linux:
 
@@ -113,12 +118,13 @@ app.py                  Flask app, SQLite storage, routes, and seed data
 templates/              Server-rendered pages and shared components
 static/                 Local CSS, JavaScript, and favicon
 tests/test_lifecycle.py  Focused integration checks
+tests/test_dashboard_chat.py  Dashboard, chat, and upgrade checks
 docs/                   Design, tradeoffs, and demo walkthrough
 instance/               Generated database and signing key (gitignored)
 ```
 
 ## Limits
 
-This is a hackathon demo. The selectable identities are **not authentication**; anyone using the app can choose any member. Contacts are fictional. The application records decisions, not physical handovers. It runs on your machine's loopback interface using Flask's development server and is not deployed or production-ready.
+This is a hackathon demo. The selectable identities are **not authentication**; anyone using the app can choose any member. Chat access is enforced against the selected identity, so this is not authenticated private messaging. Contacts are fictional. Use non-sensitive sample messages without phone numbers or home addresses. The application records decisions, not physical handovers. It runs on your machine's loopback interface using Flask's development server and is not deployed or production-ready.
 
-There are no payments, uploads, chat, notifications, search, real identity checks, delivery scheduling, or future reservations. Dates use the community timezone, Asia/Kolkata. Demo data is seeded once; restarting never resets your activity. Keep `instance/` to preserve data.
+There are no payments, uploads, general messaging, attachments, notifications, search, real identity checks, delivery scheduling, or future reservations. Chat is scoped to an approved borrow and does not update live. Dates use the community timezone, Asia/Kolkata. Demo data is seeded once; restarting never resets your activity. Keep `instance/` to preserve data.
