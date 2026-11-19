@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ share.title }} — Relay{% endblock %}
+{% block content %}
+<div class="page-heading compact"><a class="back-link" href="/">← My workspace</a><div class="eyebrow">{{ kinds[share.kind]|upper }} / SHARED WITH RELAY</div><h1 class="share-title">{{ share.title }}</h1><div class="share-meta"><span class="badge active">Active</span><span>{{ share.size|filesize }}</span><span>Expires {{ share.expires_at|date }}</span></div></div>
+<div class="share-layout">
+<section class="preview-panel" aria-labelledby="preview-heading">
+  <div class="panel-heading"><h2 id="preview-heading">{% if share.kind == 'code' %}{{ languages[share.language] }}{% elif share.kind == 'document' %}{{ share.filename }}{% else %}Resource preview{% endif %}</h2>{% if share.kind in ['text','code'] %}<button type="button" class="icon-button" id="copy-content">Copy content</button>{% endif %}</div>
+  {% if share.kind in ['text','code'] %}<pre class="{% if share.kind == 'code' %}code-preview{% endif %}"><code id="resource-content">{{ share.content }}</code></pre>
+  {% elif share.kind == 'link' %}<div class="link-preview"><span class="empty-icon" aria-hidden="true">↗</span><h3>A useful place to go.</h3><p class="url-display">{{ share.content }}</p><a class="button" href="{{ share.content }}" target="_blank" rel="noopener noreferrer">Open external link ↗</a><small>This takes you outside Relay. We don't fetch or verify this destination.</small></div>
+  {% elif preview is not none %}<pre><code>{{ preview }}</code></pre><p class="preview-note">Preview limited to the first 20 KB. Download for the complete document.</p>
+  {% else %}<div class="link-preview"><span class="empty-icon" aria-hidden="true">▤</span><h3>{{ share.filename }}</h3><p>PDFs are download-only for a safer preview experience.</p><a class="button" href="{{ url_for('download_share', token=share.id) }}">Download document ↓</a><small>Only open documents from people you trust.</small></div>{% endif %}
+</section>
+<aside class="share-sidebar"><div class="sidebar-section"><div class="eyebrow">PASS IT ON</div><h2>One simple link.</h2><label for="share-url">Share URL</label><input readonly id="share-url" value="{{ url_for('view_share', token=share.id, _external=True) }}"><button type="button" class="button full" data-copy="{{ url_for('view_share', token=share.id, _external=True) }}">Copy share link ↗</button><a class="download-link" href="{{ url_for('download_share', token=share.id) }}">Download {{ 'document' if share.kind == 'document' else 'as text' }} ↓</a></div>
+<div class="sidebar-section"><div class="eyebrow">THE DETAILS</div><dl><dt>Created</dt><dd>{{ share.created_at|date }}</dd><dt>Access ends</dt><dd>{{ share.expires_at|date }}</dd><dt>Recipient page views</dt><dd>{{ share.views }}</dd><dt>Visibility</dt><dd>Anyone with this link</dd></dl></div>
+{% if is_owner %}<div class="sidebar-section"><div class="eyebrow">OWNER CONTROLS</div><p>Done sharing? Close the link now. This cannot be undone.</p><form method="post" action="{{ url_for('revoke_share', token=share.id) }}" data-revoke><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="button danger full" type="submit">Revoke access</button></form></div>{% endif %}
+<p class="fine-print">Expiry prevents future access on Relay. Copies already saved by recipients remain theirs.</p></aside>
+</div>
+{% endblock %}

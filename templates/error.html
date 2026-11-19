@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — Relay{% endblock %}
+{% block content %}<section class="error-page"><div class="eyebrow">RELAY / {{ code }}</div><h1>{% if code == 410 %}That moment<br>has <span class="serif">passed.</span>{% elif code == 404 %}A little<br><span class="serif">off track.</span>{% else %}Let's try<br>that <span class="serif">again.</span>{% endif %}</h1><p>{{ message }}</p><a class="button" href="/">Back to workspace ↗</a></section>{% endblock %}
