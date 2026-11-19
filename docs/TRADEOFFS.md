@@ -1,38 +1,34 @@
 # Campus Commons — decisions and tradeoffs
 
-| Choice | Why it fits this MVP | Tradeoff / limit |
+| Choice | Why it fits | Limitation |
 |---|---|---|
-| Flask + Jinja | One process, ordinary forms, quick local setup, no JavaScript build chain. | Full page refreshes; richer client interactions would need extra work. |
-| SQLite via Python standard library | Durable state without installing a database service. Transactions and partial unique indexes protect the borrow loop. | A single local database and serialized writers; not designed here for multi-instance deployment. |
-| Three seeded/selectable members | Amritanshu, Rahul, and Priya show lending, borrowing, and competing requests without sign-up. | Identity selection is not authentication. Anyone can impersonate a demo member. |
-| Derive availability from Approved requests | One source of truth prevents mismatched listing/request states. | Catalogue queries check active requests; appropriate for the small demo. |
-| Transactional approval and unique index | Availability is rechecked at save time; competing pending requests are rejected atomically. | SQLite lock contention can require retrying; there is no reservation scheduler. |
-| One Pending request per borrower/item | Prevent duplicate clicks and confusing duplicate activity. | A borrower must wait for a decision before requesting that same item again. Rejected and returned requests remain history. |
-| Borrow-specific plain-text chat | Coordinates handover using the approved request as its conversation key. | No chat before approval; returned conversations are read-only. No general inbox, attachments, or real-time features. |
-| Manual message refresh | Simple server-rendered forms without persistent connections. | New replies require Refresh messages or navigation; no push updates. |
-| Secondary fictional contacts | Preserves the original approval/contact demo alongside the new chat action. | Emails are fictional; the app sends no email. |
-| Additive messages-table upgrade | Existing listings, requests, and keys remain usable. | No migration framework; later destructive schema changes would need a new design. |
-| Text and local SVG category art | Makes the catalogue readable without upload infrastructure or external image requests. | No individual item photographs. |
-| Server-rendered state | Easy to reason about and usable without JavaScript. | Borrower refreshes/navigates to see an owner's decision; no real-time updates. |
-| Local-only delivery | Agreed scope keeps setup and the demo reliable without hosting credentials. | The original brief's deployed-URL requirement is deferred. Loopback URLs work on the host machine only. |
-| A few integration checks | Covers lifecycle, permission checks, and approval integrity without spending the hackathon on tests. | Not comprehensive browser, load, security, or cross-platform coverage. |
+| Flask/Jinja modular monolith | Reuses the working app; no frontend build or external services. Routes, booking rules, and storage have separate modules. | Page navigations rather than a React SPA. |
+| SQLite | Automatic setup, transactions, overlap guards, and durable local data. | One local database; writers serialize. Multi-instance public hosting requires another operational design. |
+| Inclusive whole-day ranges | Easy calendar and owner expectations. 1–10 blocks the 10th; another booking starts on the 11th. | No hourly turnover, recurring reservations, or editable/extended bookings. |
+| Approval reserves; owner starts custody | Future approval no longer falsely implies the borrower has the item. | A click is an owner assertion, not proof of physical handover. |
+| Multiple disjoint Approved reservations | Supports the 1–10 and 20–25 use case. | Every approval must recheck overlapping ranges. A single Approved-per-item index is insufficient. |
+| Overlap triggers + unique Active index | Prevent double-booked dates and double physical custody, including stale/concurrent actions. | Small amount of domain-specific SQL; must be preserved during migration. |
+| Overdue pauses new reservations | Does not advertise uncertain availability. Future approvals are kept with warnings. | Existing bookings can still be disrupted; no guarantee or automatic replacement/cancellation. |
+| Owner unavailable blocks | Owners can keep dates for themselves. | Cannot override committed dates; first cancel the reservation or complete the active return. |
+| Either participant cancels Approved | Releases dates when plans change before handover. | No penalties or formal cancellation dispute process. Active borrows must be returned. |
+| Expire on app operations | Closes elapsed, unstarted periods without a job service. | No background notification at midnight; the next operation records expiry. Active borrows never expire. |
+| Pause/archive preserves history | Keeps item ownership useful without destroying transaction/chat records. | Cannot edit/pause/archive while commitments exist; restore never reopens old requests. |
+| Literal name search + category | Useful for six seeded items; no search infrastructure. | SQLite lowercasing is aimed at the English demo catalogue, not advanced multilingual relevance. |
+| Month grid + native date fields | Calendar visualization with a reliable no-JavaScript path. | Browser-native date widgets vary. Server revalidation is always necessary. |
+| Borrow-scoped chat and refresh | Simple persistence and participant checks without live infrastructure. | No push, attachments, typing, read receipts, or general inbox. |
+| Derived dashboard alerts | Highlights decisions, overdue items, and affected bookings without notification infrastructure. | No unread-event history or push/email delivery. |
+| Three selectable members | Demonstrates lending, borrowing, and competing requests quickly. | Not authentication; anyone can select a participant. |
+| Backed-up table rebuild | Safely changes the old status constraint while preserving IDs and messages. | Old Approved means Active; original handover timestamps are unknowable. Backups contain the same private demo data as the database. |
+| Local-only delivery | No credentials, API keys, or hosted database needed; Windows/macOS commands remain simple. | Loopback URL is not public, and Flask's development server is not production serving. |
 
-## Date and state simplifications
+## Review alignment
 
-Borrowing begins on approval. The date is an expected return date, not a future booking window. Today is calculated in Asia/Kolkata; timestamps are stored in UTC. There is no automatic overdue release, expiry job, waitlist, or auto-approval. Requests rejected when another borrower is approved remain rejected after return; members can submit new requests.
+The V1.0 review's Express ZIP audit is a separate implementation. This Flask app has no permissive CORS setup, public reset endpoint, polling interval, or browser-supplied header actor. Existing CSRF, participant checks, escaped content, and saved signing key remain. The demo identity limitation still applies.
 
-Seed data is initialized once. Restarts preserve the catalogue, requests, and signing key. There is intentionally no reset button that could erase demo work by accident.
+The implemented scope combines discovery/detail/search, cancellation, listing controls, overdue alerts, and the user's subsequent calendar requirements. Handover is owner-only, superseding the old approval-as-active shortcut. Retain the original source documents unchanged and describe this app's behavior in the README/design.
 
-## Security boundary
+## Boundaries
 
-CSRF protection, validation, escaped output, and owner checks protect workflow integrity, but the member selector deliberately allows switching to any member. The app does not prove identity. Only fictional emails are seeded; no addresses or phone numbers are collected. Flask's development server is bound to loopback and must not be presented as a production service.
+One community, free borrowing, one physical item per listing. No production authentication, hosting, payments, logistics, guarantees, formal disputes, image uploads, condition evidence, reporting workflow, persisted notifications, quantities, waitlists, hourly/recurring bookings, booking amendments/extensions, or external calendar synchronization.
 
-## Deferred features
-
-Authentication, multi-community access, deployment, payments, uploads, search/filters, general messaging, chat attachments, notifications, reviews, moderation, quantity management, future reservations, logistics, and analytics are outside this build. Production use would first require real authentication, a deliberate hosting/data-access design, operational backups, and appropriate production serving. No implementation of those capabilities is implied by this document.
-
-## V0.3 choices versus the proposed brief
-
-The user selected extending the existing app and keeping delivery local. The proposed React + Vite frontend, Supabase/Postgres backend, SPA navigation, and public hosting are deferred. Flask/Jinja pages implement Explore, personal inventory, and borrow chat without a rewrite. SQLite initializes automatically, including the new messages table, and Windows/macOS startup commands remain available.
-
-Chat access is checked for both participants on every read and send, but the member selector lets any demo visitor assume either identity. This is a workflow demonstration, not authenticated private messaging. The UI requests non-sensitive demo messages without phone numbers or home addresses; it does not scan or redact content automatically.
+Listing guidance excludes prohibited/hazardous goods, vehicles, credentials, property, services, and hygiene-sensitive personal items. It is guidance, not automatic moderation. Use non-sensitive demo chat; the app does not scan or redact addresses/phone numbers. Keep runtime databases, backups, and signing keys out of GitHub.

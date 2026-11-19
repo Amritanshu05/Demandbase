@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}{{ action|capitalize }} listing{% endblock %}
+{% block content %}
+<section class="form-panel confirmation-panel"><span class="eyebrow">YOUR SHARING SETTINGS</span><h1>{{ action|capitalize }} {{ item.name }}?</h1><p>{% if action in ('pause','archive') %}This item will be hidden from Explore. Its existing borrowing and chat history will be kept.{% else %}The item will accept new reservations again, subject to its calendar. Previous requests will stay closed.{% endif %}</p>{% if action in ('pause','archive') %}<div class="notice notice-warning">{{ pending_count }} pending request{{ '' if pending_count == 1 else 's' }} will be declined with an explanation.</div>{% endif %}<form action="{{ url_for('sharing_status', item_id=item.id) }}" method="post" class="request-actions">{{ csrf() }}<input type="hidden" name="action" value="{{ action }}"><button class="button" type="submit">Confirm {{ action }}</button><a class="button secondary" href="{{ url_for('item_detail', item_id=item.id) }}">Keep current status</a></form></section>
+{% endblock %}

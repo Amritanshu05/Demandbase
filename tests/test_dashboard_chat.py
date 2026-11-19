@@ -21,8 +21,10 @@ class DashboardChatTests(BorrowingTestCase):
         html = self.client.get('/dashboard').get_data(as_text=True)
         self.assertIn('Cricket Bat', html)
         self.assertIn('Amritanshu', html)
-        self.assertIn('Approve request', html)
+        self.assertIn('Approve dates', html)
         self.post('/requests/1/approve')
+        self.assertIn(b'Approved reservations', self.client.get('/dashboard').data)
+        self.assertEqual(self.post('/requests/1/start').status_code, 303)
         html = self.client.get('/dashboard').get_data(as_text=True)
         self.assertIn('Lent Out', html)
         self.assertIn('22 November', html)
@@ -69,6 +71,7 @@ class DashboardChatTests(BorrowingTestCase):
         self.switch(2)
         self.assertEqual(self.post('/demo-member', member_id=1, next='chat').location, '/dashboard')
         self.switch(2)
+        self.post('/requests/1/start')
         self.post('/requests/1/return')
         for member in (1, 2):
             self.switch(member)
@@ -113,7 +116,7 @@ class DashboardChatTests(BorrowingTestCase):
             self.assertEqual(db.execute('SELECT value FROM metadata WHERE key=?', ('seed_version',)).fetchone()[0], '1')
             self.assertEqual(db.execute('SELECT count(*) FROM messages').fetchone()[0], 0)
             with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("INSERT INTO borrow_requests(item_id,borrower_id,expected_return,status,created_at) VALUES(1,3,'2026-11-23','Approved','now')")
+                db.execute("INSERT INTO borrow_requests(item_id,borrower_id,start_date,expected_return,status,created_at) VALUES(1,3,'2026-11-19','2026-11-23','Approved','now')")
             db.rollback()
         client = upgraded.test_client()
         client.get('/')

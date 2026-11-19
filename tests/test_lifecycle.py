@@ -1,5 +1,6 @@
 """Small integration checks for the demo's core workflow and integrity rules."""
 
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -19,6 +20,8 @@ class BorrowingTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def post(self, path, **data):
+        if re.fullmatch(r"/items/\d+/request", path):
+            data.setdefault("start_date", self.app.config["TODAY"].isoformat())
         with self.client.session_transaction() as state:
             data["csrf"] = state["csrf"]
         return self.client.post(path, data=data)
@@ -47,8 +50,10 @@ class BorrowingSmokeTests(BorrowingTestCase):
         for text in ("Request approved", "Accepted", "Rahul has approved your request for his Cricket Bat.",
                      "rahul@example.com", "22 November", "Please message the owner here to arrange the handover."):
             self.assertIn(text, html)
-        self.assertNotIn(b"Cricket Bat", self.client.get("/").data)
+        self.assertIn(b"Cricket Bat", self.client.get("/").data)
+        self.assertIn(b"Reserved today", self.client.get("/").data)
         self.switch(2)
+        self.assertEqual(self.post("/requests/1/start").status_code, 303)
         self.assertEqual(self.post("/requests/1/return").status_code, 303)
         self.assertEqual(self.states(), ["Returned"])
         self.assertIn(b"Cricket Bat", self.client.get("/").data)

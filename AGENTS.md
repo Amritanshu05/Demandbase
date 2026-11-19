@@ -1,31 +1,30 @@
-# Campus Commons — agent and contributor guide
+# Campus Commons — contributor and agent guide
 
 ## Product
 
-Build the physical-item borrowing MVP described in `Community_Resource_Sharing_MVP_v0.3.md`, with the agreed exceptions in `README.md`. Members list movable goods, manage their inventory, request borrowing, approve/reject, chat about approved borrows, and record returns. Keep delivery local with Flask/Jinja and SQLite; no React/Supabase migration, payments, uploads, real authentication, or reservations.
+Use the implemented calendar/focused-review scope in `README.md` and `docs/DESIGN.md`. Retain source briefs as historical inputs. This is a local Flask/Jinja + SQLite demo with Amritanshu, Rahul, and Priya. No production authentication, hosting, payments, uploads, hourly/recurring bookings, or external calendar service.
 
 ## Implementation
 
-- Python 3.9+, Flask, Jinja, standard-library SQLite; no frontend build.
-- `app.py` owns routes, validation, seed data, and transactions. Templates and static assets provide the UI.
-- `instance/` is generated runtime data. Never commit, overwrite, or delete a user's database or signing key.
-- Seed Amritanshu, Rahul, and Priya once. Demo identity selection is intentionally not secure authentication.
-- Enforce owner checks and valid state transitions in the backend. Never trust submitted owner/member fields.
-- Approval must recheck availability inside a write transaction, reject competing Pending requests, and preserve the unique Approved-per-item database index.
-- Dashboard inventory includes every owned listing, even with no requests. Borrowing separates Approved, Pending, and past requests.
-- Chat belongs to one borrow request. Check participation on every read/send; allow reads for Approved/Returned and writes only for Approved. Validate writes inside the same transaction as the status check.
-- Messages are escaped plain text, 1–1,000 trimmed characters, with sender derived from the session. Returned chat is read-only. No WebSockets or polling.
-- Schema upgrades are additive and automatic. Preserve existing listings, requests, seed marker, signing key, and approval constraints.
-- Keep SQL parameterized, templates escaped, and POST forms CSRF-protected.
-- Keep core forms usable without JavaScript and retain visible keyboard focus.
+- `app.py`: routes, forms, and actor checks. `booking.py`: availability/lifecycle/date helpers. `storage.py`: schema, migrations, and seeds.
+- Keep SQL parameterized, Jinja escaped, POSTs CSRF-protected, and core forms usable without JavaScript.
+- Runtime data and backups live under ignored `instance/`. Never reset user data or signing keys. Migrations must preserve records and IDs and back up existing data before schema rebuilds.
+- Approval reserves an inclusive date range; multiple disjoint Approved reservations are valid. Recheck owner blocks, overlaps, listing state, and overdue custody inside a write transaction. Reject only overlapping Pending requests.
+- Preserve overlap triggers and the unique Active-per-item index. Only the owner marks Handed over (Approved → Active) and Returned (Active → Returned).
+- An overdue Active borrow never expires or releases automatically. Keep future approvals, pause new reservations, and prohibit another handover until return.
+- Expire unstarted Pending/Approved records after their end date during app operations. Borrowers cancel Pending; either participant cancels Approved before handover.
+- Owner edit/pause/archive requires no Approved/Active commitments. Pause/archive rejects Pending requests; restore never reopens old records. Owner blocks cannot override committed dates.
+- Chat is tied to one request. Check participation for every read/send. Approved/Active allow writes. Returned and previously approved Cancelled/Expired chats are read-only. Unapproved records have no chat.
+- Validate messages as 1–1,000 trimmed plain-text characters. Derive sender from the session. No polling or WebSockets.
+- Upgrade legacy Approved to Active; derive old start dates from request creation without fabricating actual handover timestamps. Preserve IDs, messages, foreign keys, seed marker, and signing key.
+- Do not re-enable unavailable calendar buttons during submit recovery. Restore only buttons tagged as disabled by the submitting form.
 
 ## Commands and completion
 
-- Setup/run: follow `STARTUP.md`; start with `.venv/bin/python app.py`.
-- Windows PowerShell/Command Prompt: start with `.\.venv\Scripts\python.exe app.py`.
-- Focused verification: `.venv/bin/python -m unittest discover -s tests -v`.
-- Windows verification: `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
-- Prioritize the working MVP over extensive test coverage. Add checks for material lifecycle/data-integrity changes, not cosmetic edits.
-- Update the README, design, tradeoffs, and demo guide when behavior changes. `STARTUP.md` contains run instructions only.
-- Preserve unrelated user changes. Do not restore the intentionally removed digital-sharing app.
-- Report actual checks and any verification limits. Do not publish, commit, or push unless requested.
+- macOS/Linux run: `.venv/bin/python app.py`.
+- Windows run: `.\.venv\Scripts\python.exe app.py`.
+- macOS/Linux checks: `.venv/bin/python -m unittest discover -s tests -v`.
+- Windows checks: `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+- Keep verification focused on meaningful lifecycle, migration, permission, and concurrency risks; do not add tests for cosmetic changes.
+- Update README, design, tradeoffs, and demo docs when behavior changes. STARTUP.md contains setup/run instructions only, with parallel Windows/macOS commands.
+- Preserve unrelated user changes; do not restore the removed digital-sharing app. Do not commit, push, publish, or reset demo data unless requested.

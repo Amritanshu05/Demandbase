@@ -2,7 +2,7 @@
 
 **Good things. Better shared.**
 
-A working, local community resource sharing MVP: list a physical item, request to borrow it, let the owner approve or reject, arrange the handover in borrow-specific chat, and record its return. Personal inventory, requests, and messages live in SQLite and survive refreshes and restarts.
+A working local sharing MVP: search community items, check each calendar, request dates, get approval, coordinate in chat, and let the owner record handover and return. Listings, reservations, personal inventory, and messages persist in SQLite.
 
 ## Run
 
@@ -24,7 +24,7 @@ Open **http://127.0.0.1:5001**. No external services or API keys are required.
 
 ## Reset the demo database
 
-Stop the server with **Ctrl+C** first. Run the commands below from the project directory. This removes all custom listings, request history, and chat messages; restarting recreates the three demo members and six original items. The session signing key is kept.
+Stop the server with **Ctrl+C** first. Run the commands below from the project directory. This removes all custom listings, reservations, owner date blocks, and chat messages; restarting recreates the three demo members and six original items. The session signing key is kept.
 
 **macOS / Linux**
 
@@ -47,21 +47,23 @@ del instance\commons.sqlite3
 .\.venv\Scripts\python.exe app.py
 ```
 
-Optionally copy `commons.sqlite3` elsewhere before removing it if you want to keep the current data. If you set `COMMONS_DATA_DIR`, use the `commons.sqlite3` file in that directory instead of `instance/`. Keep `secret.key`; you do not need to remove the entire `instance/` directory.
+Optionally copy `commons.sqlite3` elsewhere before removing it if you want to keep the current data. If you set `COMMONS_DATA_DIR`, use the `commons.sqlite3` file in that directory instead of `instance/`. Keep `secret.key`; you do not need to remove the entire `instance/` directory. Old migration backups in `instance/backups/` are retained by this reset.
 
 ## What works
 
-- Browse available items and create listings with a category, description, and condition.
-- Switch between Amritanshu, Rahul, and Priya. Every member can lend and borrow.
-- Submit a request with an expected return date of today or later.
-- View every owned item in **My Dashboard**, including Available items with no requests and Lent Out items with borrower/return details.
-- Follow active borrowing, pending requests, and past requests separately.
-- Owners approve or reject requests and record returns.
-- Approval locks the item and automatically rejects competing pending requests.
-- Approved borrowers see a “Request approved / Accepted” card with **Open chat**, expected return date, and secondary fictional owner contact details.
-- Owner and borrower can exchange persisted plain-text messages for that borrow. Use **Refresh messages** for replies; no real-time connection is needed.
-- Returned items reappear in Explore. Request history and read-only conversations stay accessible from My Dashboard.
-- Backend validation, owner-only actions, CSRF-protected forms, and database integrity checks.
+- Search item names, combine category filters, and open full item details.
+- A monthly calendar for every listing, with previous/next navigation, click-to-select ranges, and ordinary date fields as a no-JavaScript fallback.
+- Owner blocks for dates the item is unavailable. Public calendars show only availability, not borrower names or chat.
+- Multiple approved reservations for non-overlapping dates. Ranges are full-day and inclusive: 1–10 blocks the 10th; a separate reservation can start on the 11th.
+- Pending requests reserve nothing. Approval rechecks availability and rejects only overlapping pending requests.
+- Owner-only **Mark handed over** starts actual borrowing. Owner-only **Mark as returned** confirms receipt and releases remaining reserved dates immediately.
+- Borrowers cancel Pending requests; either participant can cancel Approved reservations before handover.
+- Unstarted Pending/Approved periods expire after their end date during normal app operations.
+- Overdue Active items remain lent out. New reservations pause; existing future approvals remain with warnings; another handover waits for return.
+- Owner edit, pause/resume, archive/restore. Approved or Active commitments lock editing/pause/archive. Pausing or archiving declines Pending requests; history is kept.
+- My Dashboard contains all inventory, incoming decisions, upcoming reservations, awaiting handover, active lending/borrowing, history, and overdue alerts.
+- Borrow-specific plain-text chat, manual refresh, and secondary fictional owner contact details. Closed, previously approved conversations remain read-only.
+- Backend validation, CSRF-protected forms, owner/participant checks, transactional writes, database overlap guards, and one Active physical borrow per item.
 
 ## Demo members
 
@@ -71,33 +73,40 @@ Optionally copy `commons.sqlite3` elsewhere before removing it if you want to ke
 | Rahul | rahul@example.com | Cricket Bat, Camping Tent |
 | Priya | priya@example.com | Mini Projector, The Design of Everyday Things |
 
-The member selector works without logging in. With JavaScript it switches immediately; otherwise select a member and press **Switch**. Identity changes are scoped to the browser session, including its tabs. Separate browser profiles can select different members independently.
+Choose a member in the header. With JavaScript it switches immediately; otherwise press **Switch**. The selected identity is shared by tabs in that browser session. Separate browser profiles can select members independently. These identities are not authentication.
 
 ## Quick demo
 
-As Amritanshu, request Rahul's Cricket Bat with a future return date. Switch to Rahul and approve it in My Dashboard. Show the bat as **Lent Out** with Amritanshu and the expected return date. Switch back to Amritanshu to show it under Borrowing, open chat, and send a message. Switch to Rahul to reply, then mark it returned. The bat becomes available again, and the conversation becomes read-only.
+As Amritanshu, search for Rahul's Cricket Bat, open its calendar, and request **today through a later return date**. Switch to Rahul and approve the dates. Switch back to Amritanshu to open chat. Rahul then chooses **Mark handed over**, and later **Mark as returned**. The actual borrow closes, its unused days become free, and its chat becomes read-only.
 
-For competing approvals and listing creation, follow the [full demo walkthrough](docs/DEMO.md).
+For future scheduling, request next month's 1–10 as Amritanshu and 20–25 as Priya. Rahul can approve both in advance. They remain reservations until Rahul records handover during the respective booked period. Use [the full demo guide](docs/DEMO.md) for owner blocks, cancellation, and listing controls.
 
-## Documentation
+## Upgrade existing data — no reset needed
+
+Stop the old process and start the updated app normally. An existing pre-calendar database is copied to `instance/backups/commons-before-calendar-<UTC timestamp>.sqlite3` before migration. Keep this directory private and out of GitHub, along with the rest of `instance/`.
+
+The migration preserves listing/request/message IDs, seed data, signing key, and history. Old **Approved** records become **Active**, matching the earlier app's approval-as-borrowing semantics. Legacy start dates come from request creation dates in Asia/Kolkata. Unknown actual handover/return timestamps remain empty. New records store actual lifecycle timestamps.
+
+The migration verifies foreign keys and rolls back on failure. A successful restart does not repeat the backup or reseed data. If startup reports a migration problem, keep the database and backup and resolve the reported error; do not delete `instance/` to work around it. No separate SQLite installation or migration command is required.
+
+## Documentation and scope
 
 | Document | Purpose |
 |---|---|
-| [Original MVP brief](Community_Resource_Sharing_MVP_v0.1.md) | Product requirements and exclusions |
-| [V0.3 brief](Community_Resource_Sharing_MVP_v0.3.md) | Proposed personal dashboard and borrow-chat requirements, retained as supplied |
-| [Startup](STARTUP.md) | Installation and run instructions only |
-| [Design](docs/DESIGN.md) | Architecture, screens, data model, routes, and state changes |
-| [Tradeoffs](docs/TRADEOFFS.md) | Choices, limitations, and deferred capabilities |
-| [Demo](docs/DEMO.md) | End-to-end judging walkthrough |
-| [Agent instructions](AGENTS.md) | Contributor conventions and project commands |
+| [V0.1 brief](Community_Resource_Sharing_MVP_v0.1.md) | Original historical scope |
+| [V0.3 brief](Community_Resource_Sharing_MVP_v0.3.md) | Dashboard/chat proposal |
+| [V1.0 review](Community_Resource_Sharing_MVP_Review_and_Redesign_v1.0.md) | Product review, retained as supplied; its Express ZIP audit is not an audit of this Flask app |
+| [Startup](STARTUP.md) | Setup/run commands for Windows and macOS/Linux |
+| [Design](docs/DESIGN.md) | Implemented behavior, schema, interfaces, migration, and invariants |
+| [Tradeoffs](docs/TRADEOFFS.md) | Chosen policies and deferred features |
+| [Demo](docs/DEMO.md) | Reproducible walkthrough |
+| [Agent instructions](AGENTS.md) | Contributor conventions |
 
-V0.3 adds personal inventory and borrow-specific chat. Agreed choices override its suggested stack/deployment: retain **Flask/Jinja + SQLite**, server-rendered navigation, and **local-only delivery**. There is no React SPA, Supabase, or public hosting in this build. Keep all three demo members and the previous approval message, with chat as the primary coordination method and fictional contact details secondary. Both source briefs are retained unchanged.
-
-Existing databases upgrade automatically on the next start: a messages table/index is added, without resetting listings, requests, demo members, or the signing key. Existing Approved and Returned borrows can open an initially empty conversation. **You do not need to reset your database.**
+The agreed scope combines the review's discovery/listing-control improvements with date calendars, future reservations, owner-only handover/return, cancellation, and overdue handling. Keep **Flask/Jinja + SQLite**, server-rendered navigation, and **local-only delivery**. These choices override conflicting historical exclusions and suggested React/Supabase/public-hosting designs.
 
 ## Verification
 
-Six focused integration checks cover the lifecycle, approval guard, validation, personal inventory, chat participation/read-only history/message persistence, and upgrading existing data. They use temporary databases and do not modify your demo data.
+Thirteen focused integration checks use temporary databases, leaving visible demo data untouched. They cover lifecycle and access control, disjoint/overlapping ranges, two simultaneous approvals, owner blocks/listing controls, cancellation/expiry, late and early returns, chat, and legacy migration including failure rollback.
 
 macOS / Linux:
 
@@ -111,20 +120,25 @@ Windows PowerShell or Command Prompt:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
+The Chrome walkthrough checks discovery, calendar clicks across months, two approved reservations, owner handover, chat, early return, cancellation, pause/resume/archive/restore, and phone/tablet/desktop widths. Native Windows runtime verification has not been performed in this macOS workspace.
+
 ## Project layout
 
 ```text
-app.py                  Flask app, SQLite storage, routes, and seed data
-templates/              Server-rendered pages and shared components
-static/                 Local CSS, JavaScript, and favicon
-tests/test_lifecycle.py  Focused integration checks
-tests/test_dashboard_chat.py  Dashboard, chat, and upgrade checks
-docs/                   Design, tradeoffs, and demo walkthrough
-instance/               Generated database and signing key (gitignored)
+app.py       Flask routes, forms, permissions, and lifecycle actions
+booking.py   Date validation, availability, calendar, and domain helpers
+storage.py   Schema, overlap guards, backed-up migration, and seed data
+templates/   Server-rendered pages and shared components
+static/      Local CSS, calendar enhancement, and favicon
+tests/       Focused integration checks with temporary databases
+docs/        Design, tradeoffs, and demo walkthrough
+instance/    Generated database, signing key, and backups (gitignored)
 ```
 
 ## Limits
 
-This is a hackathon demo. The selectable identities are **not authentication**; anyone using the app can choose any member. Chat access is enforced against the selected identity, so this is not authenticated private messaging. Contacts are fictional. Use non-sensitive sample messages without phone numbers or home addresses. The application records decisions, not physical handovers. It runs on your machine's loopback interface using Flask's development server and is not deployed or production-ready.
+Selectable identities are **not authentication**: anyone can choose another demo member. Chat access is enforced against the selected identity, not a verified real-world identity. Use only fictional contacts and non-sensitive messages without personal phone numbers or home addresses. The app records owner assertions about handover/return; it cannot verify physical custody.
 
-There are no payments, uploads, general messaging, attachments, notifications, search, real identity checks, delivery scheduling, or future reservations. Chat is scoped to an approved borrow and does not update live. Dates use the community timezone, Asia/Kolkata. Demo data is seeded once; restarting never resets your activity. Keep `instance/` to preserve data.
+Share ordinary movable goods. Weapons, hazardous/illegal items, vehicles, account credentials, property, services, and hygiene-sensitive personal-use items are outside scope. The UI provides guidance, not automated moderation or guarantees.
+
+No payments, uploads, general messaging, attachments, push/email notifications, hourly/recurring bookings, reservation amendments/extensions, waitlists, multiple quantities, real authentication, or public deployment. Dates use Asia/Kolkata; timestamps are UTC. The Flask development server runs locally. Keep `instance/` to preserve data.

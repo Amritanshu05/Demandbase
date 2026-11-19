@@ -1,80 +1,105 @@
-# Campus Commons — V0.3 design
+# Campus Commons — discovery and calendar design
 
-## Architecture and agreed baseline
+## Implemented baseline
 
-One local Flask process serves Jinja pages, static CSS/JavaScript, and SQLite-backed forms. The V0.3 source brief adds personal inventory and borrow-specific chat. The agreed implementation retains Flask/Jinja + SQLite and local-only delivery, overriding the brief's React SPA, Supabase, and public-deployment suggestions. No frontend build or external API is required.
+A local Flask/Jinja application, SQLite, one North Campus community, and seeded Amritanshu/Rahul/Priya. This combines the focused V1.0 review improvements with the subsequently agreed calendar requirements. Source briefs stay unchanged; the review's Express ZIP findings do not describe this Flask codebase. React/Supabase, public hosting, and real authentication remain deferred.
 
 ```mermaid
 flowchart LR
-    Browser[Explore / My Dashboard / Borrow Chat] --> Flask[Flask routes and validation]
-    Flask --> Jinja[Jinja templates and local assets]
-    Flask --> DB[(SQLite: members, items, requests, messages)]
-    Jinja --> Browser
+    Browser[Explore / Item Calendar / Dashboard / Chat] --> Routes[app.py: forms and permissions]
+    Routes --> Domain[booking.py: availability and lifecycle]
+    Routes --> Store[storage.py: schema and migration]
+    Domain --> DB[(SQLite)]
+    Store --> DB
 ```
 
-`create_app(config)` initializes storage. `instance/commons.sqlite3` holds data; `instance/secret.key` holds the persisted session-signing key. `COMMONS_DATA_DIR` can select another runtime directory. Each request uses its own SQLite connection with foreign keys enabled and a five-second busy timeout. Connections close at request end. `BEGIN IMMEDIATE` serializes write transactions, which commit or roll back together.
+HTML forms work without JavaScript. Local JavaScript adds immediate member switching, repeat-submit prevention, and calendar range selection. Date fields remain available. Calendar month links preserve selection when JavaScript is enabled. No third-party assets, calendar service, frontend build, background worker, or live chat connection is required.
 
-## Data model and upgrade
+## Discovery and listing state
 
-| Table | Fields / purpose |
+Explore searches names using a parameterized literal substring and combines an optional allowed-category filter. SQL `lower` provides case-insensitive matching for the English demo catalogue. Filter values stay in GET parameters. Paused/Archived items are excluded; currently reserved/lent items remain discoverable for future requests. Result counts refer to the matching catalogue.
+
+Each item has `sharing_state = Listed | Paused | Archived`. Current availability is derived, not another mutable database field: state first, then overdue custody, Active custody, a reservation today, an owner block today, or Available now. Upcoming reservations do not imply current physical custody.
+
+Public detail pages show description, category, condition, owner, and a free/busy calendar. They reveal no borrower names or request/chat details. Owner controls manage editing, pause/resume, archive/restore, pending requests, and unavailable dates. Editing/pause/archive require no Approved/Active commitments; an Archived item must be restored before editing. Pause/archive atomically rejects Pending requests with a reason. No item hard-delete route exists.
+
+## Data model
+
+| Table | Important fields |
 |---|---|
-| `members` | ID, display name, unique fictional email. Amritanshu, Rahul, and Priya are seeded. |
-| `items` | ID, owner ID, name, category, description, condition, creation timestamp. One physical item per row. |
-| `borrow_requests` | ID, item ID, borrower ID, expected return date, status, creation timestamp. Also acts as the conversation identifier. |
-| `messages` | Auto-increment ID, borrow-request ID, sender ID, plain-text body, UTC creation timestamp. Foreign keys reference the borrow and member. |
-| `metadata` | Seed-version marker, preventing reseeding on restart. |
+| `members` | Stable ID, name, fictional email. |
+| `items` | Owner, name (1–100), category, description (1–600), condition, sharing state, created/updated timestamps. |
+| `borrow_requests` | Item, borrower, start date, inclusive `expected_return`, status, created/approved/decided/handed-over/returned/cancelled/expired timestamps, resolution reason. |
+| `unavailable_dates` | Item, inclusive start/end dates, creation timestamp. |
+| `messages` | Borrow-request ID, sender ID, trimmed plain text (1–1,000), UTC creation timestamp. |
+| `metadata` | Seed version and calendar schema version. |
 
-Names contain 1–100 trimmed characters, descriptions 1–600, and messages 1–1,000. Categories are Sports, Electronics, Books, Tools, Outdoors, Other; conditions are Like new, Good, Fair. Messages are indexed and ordered by `(borrow_request_id, created_at, id)` for deterministic ordering when timestamps tie. Sender is always the selected member, never a submitted field.
+Foreign keys connect ownership, borrowers, and messages. Messages use the request itself as their conversation key. Message ordering is creation time then ID. The selected session member supplies the sender; submitted owner/sender IDs are ignored.
 
-A unique partial index permits only one Approved borrow per item. Another permits only one Pending request per borrower/item pair. Availability is derived from active Approved requests, with no duplicate listing status. Display that state as **Lent Out** in the owner's inventory.
+Date fields are canonical ISO `YYYY-MM-DD` dates in Asia/Kolkata. New requests/blocks require start >= today and end >= start. Ranges include both boundary days. A 1–10 reservation conflicts with 10–12 but not 11–12. Month navigation and request windows can cross months/years.
 
-Schema initialization runs before the seed-marker check. Existing databases receive `messages` and its index through additive `CREATE ... IF NOT EXISTS` statements. No old rows, constraints, signing key, or seed marker are changed. Existing Approved/Returned requests immediately have an empty conversation. No conversation backfill, reset, or separate migration service is needed.
-
-## Screens
-
-- **Explore:** available items with owner, category, condition, and description. Own listings cannot be requested; Pending requests link to the dashboard. Borrowed items disappear until return.
-- **List an item:** required fields with backend ownership assignment and validation. The form remains a simple server-rendered page.
-- **Request to borrow:** expected return date, today or later in Asia/Kolkata. Pending requests do not reserve an item; borrowing starts on approval.
-- **My Dashboard / My Items:** every owned listing, newest first, including listings with no requests. Available/Lent Out badge; borrower and return date for active lending; pending actions grouped under each item; collapsible lending history with Returned conversation links.
-- **My Dashboard / Borrowing:** Approved borrows first, then Pending requests, then Returned/Rejected history. Show owner and expected return date. Approval retains Request approved / Accepted, with Open chat as the main action and fictional owner contact in secondary expandable details.
-- **Borrow Chat:** owner, borrower, item, state, expected return date, and messages with sender/time. Approved participants have a composer. Returned conversations show a read-only notice and no composer. The owner can also record return from this screen.
-
-The visible selector stores the demo member ID in a signed session cookie. Default is Amritanshu. Switches on the dashboard stay there; switches from chat go to the dashboard, requiring another participant check before opening a conversation. Switches from item forms return to Explore. Identity is shared across tabs in one browser session.
-
-All forms work without JavaScript. JavaScript provides immediate member switching and repeated-click prevention only. New replies load through **Refresh messages** or navigation; there is no polling, WebSocket, typing indicator, or read receipt. Text is escaped, with line breaks preserved in CSS. The UI asks users to avoid addresses/phone numbers; it does not inspect or redact messages.
-
-## HTTP interfaces
-
-| Method | Route | Behavior |
-|---|---|---|
-| GET | `/` | Available catalogue. |
-| POST | `/demo-member` | Validated `member_id` and whitelisted `next`; switch identity. |
-| GET | `/items/new` | Listing form. |
-| POST | `/items` | `name`, `category`, `description`, `condition`; create selected member's listing. |
-| GET, POST | `/items/<id>/request` | Request form; POST accepts ISO `expected_return`. |
-| GET | `/dashboard` | Owned inventory, pending requests, active borrowing, history. |
-| GET | `/activity` | Compatibility redirect to `/dashboard`, HTTP 303. |
-| POST | `/requests/<id>/approve` | Owner-only atomic approval and rejection of competing Pending requests. |
-| POST | `/requests/<id>/reject` | Owner-only rejection of Pending request. |
-| POST | `/requests/<id>/return` | Owner-only Approved → Returned. |
-| GET | `/borrows/<id>` | Participant-only Approved/Returned details and messages. |
-| POST | `/borrows/<id>/messages` | Participant-only `body`, while Approved. |
-| GET | `/health` | `{"status":"ok"}` after a database query. |
-
-Every POST checks a CSRF token. Successful mutations use HTTP 303. Invalid fields return 422 with input preserved. Invalid member returns 400; non-participant/owner or CSRF failure returns 403; missing record returns 404; stale transitions, unavailable conversations, duplicate requests, or sending after return return 409. Oversized forms return 413; database lock contention returns 503 with retry guidance.
-
-## State and access integrity
+## Reservation and custody lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: Request available item
-    Pending --> Approved: Owner approves
-    Pending --> Rejected: Owner declines or approves another request
-    Approved --> Returned: Owner records physical return
+    Pending --> Approved: Owner reserves dates
+    Pending --> Rejected: Owner decision or overlapping commitment
+    Pending --> Cancelled: Borrower cancels
+    Pending --> Expired: Period ends
+    Approved --> Active: Owner marks handed over
+    Approved --> Cancelled: Either participant cancels
+    Approved --> Expired: Period ends without handover
+    Active --> Returned: Owner confirms return
 ```
 
-Approval loads the request in a write transaction, checks owner and Pending status, rechecks availability, approves it, and rejects competing Pending requests before commit. The unique index provides a second guard. Returning changes the request to Returned and immediately releases derived availability. Requests are not auto-expired; overdue items stay lent until the owner records return.
+- Pending requests do not block dates. Multiple members can request overlapping periods. One member cannot create overlapping Pending requests for the same item, but can request distinct periods.
+- Submission/approval checks Listed state, owner blocks, existing Approved/Active ranges, and overdue custody. Approval rejects only overlapping Pending requests; disjoint requests remain open.
+- Approved reserves dates and opens chat. Only the owner can start borrowing during the reserved period. Another Active borrow blocks handover, even if its expected date has passed.
+- Active represents the owner's handover assertion. Only the owner records return. An early return releases the remainder immediately while preserving other reservations/blocks.
+- Either participant cancels Approved before handover. Only the borrower cancels Pending; owners reject Pending. Active borrows cannot be cancelled.
+- On app operations, elapsed Pending/Approved periods become Expired. No background job is required. An unstarted reservation can still be approved/handed over after its start date if its period has not ended.
+- Active records never auto-expire or return. Overdue means Active and expected return < community today. Today itself is not overdue. An overdue item pauses new requests/approvals, keeps existing future approvals with warnings, and blocks subsequent handover until return.
+- Rejected/Cancelled/Expired records do not reopen when dates become free. New requests are required. Booking-date changes/extensions are not implemented.
 
-Every chat GET/POST loads the borrow, checks the selected member is its owner or borrower, and requires Approved/Returned status. POST additionally requires Approved, performing the check and insert in one write transaction. If sending commits before return, its message stays in history; if return commits first, sending is rejected. Pending/Rejected requests cannot open chat. Another borrow of the same item uses a different request ID and a separate conversation.
+Owner unavailable-date blocks cannot overlap Approved/Active windows or other blocks. Creating a block rejects only overlapping Pending requests; removing one never changes other reservations. Owners may manage non-conflicting future blocks while an item is lent, but cannot modify Archived calendars until restore.
 
-Demo identity selection is not authentication: a person can choose another demo member. Participant checks enforce the workflow for the selected member, not production-grade privacy. Jinja escaping, parameterized SQL, CSRF, HttpOnly/SameSite cookies, no-store responses, and a same-origin content policy remain. The server stays bound to loopback.
+## Consistency and access
+
+Writes use `BEGIN IMMEDIATE` with a five-second SQLite busy timeout. Approval, competing rejections, handover, return, cancellation, listing-state changes, and owner blocks are each transactional. Availability is rechecked under the write lock.
+
+Database triggers reject overlapping Approved/Active ranges and owner-block conflicts. A unique partial index enforces one Active physical borrow per item. An exact Pending-window index and the transactional self-overlap check prevent repeated/overlapping submissions. Date-range indexes support availability queries. Concurrent conflicting approvals yield one success and one stale/conflict error, with no partial update.
+
+Only participants can read borrow details/chat. Approved/Active allow sending. Returned and previously approved Cancelled/Expired records allow reading only; `approved_at` distinguishes closed, previously approved conversations from unapproved ones. Sending checks participant and status in the write transaction, so a return/cancellation racing with a send cannot permit a later message. Legacy Returned/Active conversations remain readable even where historical timestamps are unknown.
+
+Every POST has CSRF protection. Jinja escapes user content; message line breaks are preserved with CSS. Forms have input limits, session cookies are HttpOnly/SameSite, responses are no-store, and static assets obey the same-origin content policy. Member selection is a demo workflow guard, not authentication. The server cannot verify real custody or sanitize personal facts from messages.
+
+## Routes and responses
+
+| Methods | Route | Purpose |
+|---|---|---|
+| GET | `/?q=...&category=...` | Search/filter discoverable listings. |
+| GET | `/items/<id>?month=YYYY-MM` | Details, free/busy month, reservation form, owner controls. |
+| GET / POST | `/items/new` / `/items` | Create listing. |
+| GET, POST | `/items/<id>/edit` | Owner edit form/save. |
+| GET, POST | `/items/<id>/sharing-status` | Confirm/save `action=pause|resume|archive|restore`. |
+| GET, POST | `/items/<id>/unavailable-dates` | Owner management link / create date block with `start_date,end_date`. |
+| POST | `/items/<id>/unavailable-dates/<block_id>/remove` | Remove own block. |
+| GET, POST | `/items/<id>/request` | GET redirects to detail; POST accepts `start_date,expected_return`. |
+| POST | `/requests/<id>/<action>` | `approve`, `reject`, `start`, `return`, `cancel`, with actor/state checks. |
+| GET | `/dashboard` | Inventory, reservations, custody, alerts, and history. |
+| GET | `/activity` | Compatibility redirect to dashboard. |
+| GET / POST | `/borrows/<id>` / `/borrows/<id>/messages` | Participant chat / send `body`. |
+| POST | `/demo-member` | Select allowed demo ID; whitelist redirect destination. |
+| GET | `/health` | Database readiness JSON. |
+
+Successful mutations redirect with 303. Invalid form values return 422 with values preserved. Invalid query/category/member input returns 400, denied actions 403, missing records 404, and stale/conflicting actions 409. Oversized forms return 413 and database contention 503. Closed chat explains read-only status. There is no HTTP reset endpoint.
+
+## Automatic migration and persistence
+
+`storage.py` detects the legacy request table by its missing start date. Before modifying it, SQLite's backup API creates `instance/backups/commons-before-calendar-<UTC timestamp>.sqlite3`. The signing key stays unchanged.
+
+The upgrade uses a transaction, temporarily disabling foreign-key enforcement outside the transaction as required for a parent-table rebuild. It adds item sharing state/update time, copies requests into the new constrained table preserving IDs, drops the old parent, renames the new parent, preserves the auto-increment sequence, and recreates indexes/triggers. Message foreign keys keep the original parent name. A foreign-key check must pass before committing the schema version. Failure rolls back; the original database and backup remain.
+
+Old Approved records become Active because the earlier app treated approval as borrowing. Legacy start dates are request-creation dates converted to Asia/Kolkata. Actual historical handover/return/decision times are not invented. Old IDs, messages, conditions, contacts, seed marker, and key remain. Missing message tables from older physical-sharing versions are created. Fresh databases initialize the latest schema and six seed items directly; restarts never reseed or repeat a successful migration backup.
+
+Reset remains a deliberate local file operation documented in README. It is never performed by upgrade, tests, or an unauthenticated endpoint. Test and browser QA databases are separate from visible demo data.
